@@ -104,7 +104,7 @@ export const Governance: React.FC = () => {
 
   if (!allowed) {
     return (
-      <PageLayout title={PAGE_TITLES.governance} description="Requires system.audit.read.">
+      <PageLayout title={PAGE_TITLES.governance} description="You need the audit permission to see this page.">
         <Card className="p-6 text-muted">You do not have permission to view the audit log.</Card>
       </PageLayout>
     );
@@ -113,7 +113,7 @@ export const Governance: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.governance}
-      description="Who did what in Fortuna, what the platform changed, and who can do what. The API enforces system.audit.read."
+      description="Who did what in Fortuna, what the platform changed, and who can do what."
     >
       <Tabs
         variant="underline"
@@ -168,7 +168,7 @@ export const Governance: React.FC = () => {
           </Card>
 
           <Card title="Permissions by role" variant="panel" contentClassName="p-0">
-            <div className="ui-table-scroll max-h-[70vh]">
+            <div className="ui-table-scroll overflow-y-auto max-h-[70vh]">
               <table className={UI_TABLE}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>

@@ -3,7 +3,7 @@ import type { PersonaId } from './persona';
 /** The Findings queue plus its secondary view (runtime evidence). */
 export type RiskTabId = 'triage' | 'reference';
 
-export type RiskFindingsColKey = 'type' | 'resource' | 'score' | 'nsCluster' | 'detected' | 'updated';
+export type RiskFindingsColKey = 'type' | 'resource' | 'evidence' | 'nsCluster' | 'detected' | 'updated';
 
 export interface RiskWorkspaceConfig {
   visibleTabs: RiskTabId[];
@@ -14,13 +14,12 @@ export interface RiskWorkspaceConfig {
   showRowSelection: boolean;
   showSavedViews: boolean;
   narrativeTable: boolean;
-  showProvenanceColumn: boolean;
 }
 
 const VIEWER_COLS: Record<RiskFindingsColKey, boolean> = {
   type: false,
   resource: true,
-  score: true,
+  evidence: false,
   nsCluster: true,
   detected: false,
   updated: false,
@@ -29,10 +28,10 @@ const VIEWER_COLS: Record<RiskFindingsColKey, boolean> = {
 const OPERATOR_COLS: Record<RiskFindingsColKey, boolean> = {
   type: true,
   resource: true,
-  score: true,
+  evidence: false,
   nsCluster: true,
   detected: true,
-  updated: true,
+  updated: false,
 };
 
 const ADMIN_COLS: Record<RiskFindingsColKey, boolean> = { ...OPERATOR_COLS };
@@ -47,7 +46,6 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showRowSelection: false,
     showSavedViews: false,
     narrativeTable: true,
-    showProvenanceColumn: true,
   },
   operator: {
     visibleTabs: ['triage', 'reference'],
@@ -58,7 +56,6 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showRowSelection: true,
     showSavedViews: true,
     narrativeTable: false,
-    showProvenanceColumn: true,
   },
   admin: {
     visibleTabs: ['triage', 'reference'],
@@ -69,9 +66,7 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showRowSelection: true,
     showSavedViews: true,
     narrativeTable: false,
-    showProvenanceColumn: true,
   },
-
 };
 
 export function getRiskWorkspaceConfig(personaId: PersonaId): RiskWorkspaceConfig {

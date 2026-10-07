@@ -2,15 +2,37 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Notification } from '../types';
-import { Check, Info, AlertTriangle, XCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { Check, Info, AlertTriangle, XCircle, CheckCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
-import { formatDateTime } from '../lib/display';
+import { When } from '../components/When';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { DataFreshness } from '../components/DataFreshness';
 
 const PAGE_SIZE = 50;
+
+/** "Today", "Yesterday", then the date, newest first (the API already sorts by time). */
+function groupByDay(notes: Notification[]): Array<[string, Notification[]]> {
+  const groups = new Map<string, Notification[]>();
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  for (const note of notes) {
+    const t = note.timestamp ? new Date(note.timestamp) : null;
+    const label = !t || Number.isNaN(t.getTime())
+      ? 'Earlier'
+      : t.toDateString() === today.toDateString()
+        ? 'Today'
+        : t.toDateString() === yesterday.toDateString()
+          ? 'Yesterday'
+          : t.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const list = groups.get(label) ?? [];
+    list.push(note);
+    groups.set(label, list);
+  }
+  return Array.from(groups.entries());
+}
 
 export const Notifications: React.FC = () => {
   const navigate = useNavigate();
@@ -91,6 +113,13 @@ export const Notifications: React.FC = () => {
     }
   };
 
+  /** Opening a notification marks it read; the page refreshes when you come back. */
+  const openNotification = (note: Notification) => {
+    if (!note.route) return;
+    if (!note.read) void api.markNotificationRead(note.id).catch(() => undefined);
+    navigate(note.route);
+  };
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'error': return <XCircle className="w-5 h-5 text-red-500" />;
@@ -145,50 +174,48 @@ export const Notifications: React.FC = () => {
           description={unreadOnly ? 'You have read every notification in your scope.' : 'No security events in your scope yet.'}
         />
       ) : (
-        <div className="space-y-4">
-          {notifications.map((note) => (
-            <div
-              key={note.id}
-              className={`p-4 rounded-lg border flex items-start space-x-4 transition-colors ${note.read ? 'bg-surface border-border' : 'bg-surface border-brand/30 shadow-lg shadow-black/20'}`}
-            >
-              <div className="mt-1 shrink-0" aria-hidden>{getIcon(note.type || note.severity || 'info')}</div>
-              <div className="flex-1">
-                <div className="flex justify-between items-start">
-                  <h3 className={`text-body font-semibold ${note.read ? 'text-muted' : 'text-text'}`}>{note.title}</h3>
-                  <span className="text-caption text-muted">{formatDateTime(note.timestamp)}</span>
-                </div>
-                {note.resourceName ? (
-                  <p className="mt-1 text-caption font-semibold text-brand">{note.resourceName}</p>
-                ) : null}
-                <p className="text-body text-muted mt-1">{note.message}</p>
-                <p className="text-caption text-muted mt-2">
-                  status: {note.read ? 'read' : 'unread'} ·{' '}
-                  severity: {(note.severity || 'info').toUpperCase()}
-                  {note.source ? ` · source: ${note.source}` : ''}
-                  {note.category ? ` · category: ${note.category}` : ''}
-                </p>
-                {note.route ? (
-                  <button
-                    type="button"
-                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-caption font-medium text-brand transition-colors hover:bg-brand/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
-                    onClick={() => navigate(note.route || '/')}
-                  >
-                    Open target <ExternalLink size={13} aria-hidden />
-                  </button>
-                ) : null}
-              </div>
-              {!note.read && (
-                <button
-                  type="button"
-                  className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 sm:min-h-8 sm:min-w-8"
-                  aria-label={`Mark notification "${note.title}" as read`}
-                  disabled={markingId === note.id}
-                  onClick={() => void markNotificationRead(note.id)}
-                >
-                  <Check size={16} />
-                </button>
-              )}
-            </div>
+        <div className="space-y-6">
+          {groupByDay(notifications).map(([day, notes]) => (
+            <section key={day}>
+              <h2 className="mb-2 text-caption font-semibold uppercase tracking-wide text-muted">{day}</h2>
+              <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+                {notes.map((note) => (
+                  <li key={note.id} className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${note.read ? 'bg-transparent' : 'bg-brand'}`} aria-hidden />
+                    <span className="shrink-0" aria-hidden>{getIcon(note.type || 'info')}</span>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 rounded"
+                      onClick={() => openNotification(note)}
+                      disabled={!note.route}
+                      title={note.route ? 'Open' : undefined}
+                    >
+                      <span className="flex flex-wrap items-baseline gap-x-2">
+                        <span className={`text-body ${note.read ? 'text-muted' : 'font-semibold text-text'}`}>{note.title}</span>
+                        {!note.read ? <span className="sr-only">(unread)</span> : null}
+                        {note.resourceName ? <span className="text-caption text-muted">{note.resourceName}</span> : null}
+                      </span>
+                      {note.message ? <span className="block truncate text-caption text-muted">{note.message}</span> : null}
+                    </button>
+                    <When iso={note.timestamp} className="shrink-0 text-caption text-muted" />
+                    {!note.read ? (
+                      <button
+                        type="button"
+                        className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-lg text-brand transition-colors hover:bg-brand/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 sm:min-h-8 sm:min-w-8"
+                        aria-label={`Mark notification "${note.title}" as read`}
+                        title="Mark as read"
+                        disabled={markingId === note.id}
+                        onClick={() => void markNotificationRead(note.id)}
+                      >
+                        <Check size={16} />
+                      </button>
+                    ) : (
+                      <span className="min-w-10 sm:min-w-8" aria-hidden />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
           <div className="flex items-center justify-between gap-3 text-caption text-muted">
             <span>

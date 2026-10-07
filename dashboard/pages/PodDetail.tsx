@@ -1728,7 +1728,7 @@ const PodDetailContent: React.FC = () => {
             <p className="text-muted text-body">Loading...</p>
           ) : runtimeMetrics.length > 0 ? (
             <div className="rounded-lg border border-border bg-base/30 overflow-hidden -mx-1 sm:mx-0">
-              <div className="ui-table-scroll max-h-[min(70dvh,36rem)]">
+              <div className="ui-table-scroll overflow-y-auto max-h-[min(70dvh,36rem)]">
               <table className={`${UI_TABLE} min-w-[720px]`}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>
@@ -1791,7 +1791,7 @@ const PodDetailContent: React.FC = () => {
             <p className="text-muted text-body">Loading...</p>
           ) : processes.length > 0 ? (
             <div className="rounded-lg border border-border bg-base/30 overflow-hidden -mx-1 sm:mx-0">
-              <div className="ui-table-scroll max-h-[min(70dvh,36rem)]">
+              <div className="ui-table-scroll overflow-y-auto max-h-[min(70dvh,36rem)]">
               <table className={`${UI_TABLE} min-w-[960px]`}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>
@@ -1890,7 +1890,7 @@ const PodDetailContent: React.FC = () => {
               />
             ) : (
             <div className="rounded-lg border border-border bg-base/30 overflow-hidden -mx-1 sm:mx-0">
-              <div className="ui-table-scroll max-h-[min(70dvh,36rem)]">
+              <div className="ui-table-scroll overflow-y-auto max-h-[min(70dvh,36rem)]">
               <table className={`${UI_TABLE} min-w-[900px]`}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>

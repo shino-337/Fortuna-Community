@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useLocation, useParams, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { CapabilityMetadata, Insight, RuntimeSignal } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
 import { FindingActions } from '../components/FindingActions';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, Info } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2 } from 'lucide-react';
 import { getSeverityBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
 import { formatRiskFindingReference, insightTypeUiLabel } from '../lib/riskDisplay';
@@ -14,7 +14,8 @@ import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { buildEvidenceLogEntries } from '../lib/evidenceLog';
-import { podDetailPath } from '../lib/podRoute';
+import { attackPathsForPodPath, findingsForResourcePath, identityDetailPath, networkForPodPath, podDetailPath } from '../lib/entityLinks';
+import { When } from '../components/When';
 import { useToast } from '../design-system/components/Toast';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
@@ -69,7 +70,6 @@ const collectCapabilityIDsFromEvidence = (evidence: Insight['evidence']): string
 };
 
 export const RiskDetail: React.FC = () => {
-  const tooltipLabelClass = 'inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help';
   const { id: routeId } = useParams<{ id: string }>();
   const location = useLocation();
   const id = routeId ?? decodeURIComponent(location.pathname.match(/^\/risks\/([^/]+)/)?.[1] ?? '');
@@ -102,8 +102,9 @@ export const RiskDetail: React.FC = () => {
     }
     let cancelled = false;
     const loadLinkedDetections = async () => {
-      const ruleIds = parseRuleIDsFromViolatedRules(insight.violatedRules).slice(0, 6);
-      const capabilityIds = collectCapabilityIDsFromEvidence(insight.evidence).slice(0, 6);
+      const refs = insight.evidence_refs;
+      const ruleIds = Array.from(new Set([...parseRuleIDsFromViolatedRules(insight.violatedRules), ...(refs?.ruleIds ?? [])])).slice(0, 6);
+      const capabilityIds = Array.from(new Set([...collectCapabilityIDsFromEvidence(insight.evidence), ...(refs?.capabilityIds ?? [])])).slice(0, 6);
       const [rulesRes, capsRes] = await Promise.all([
         Promise.allSettled(ruleIds.map((ruleId) => api.getRule(ruleId))),
         Promise.allSettled(capabilityIds.map((capabilityId) => api.getCapabilityMetadataById(capabilityId))),
@@ -187,7 +188,6 @@ export const RiskDetail: React.FC = () => {
     insight.finalLevel != null && String(insight.finalLevel).trim() !== ''
       ? String(insight.finalLevel).toLowerCase()
       : deriveUnifiedRiskLevelFromScore(insight.score);
-  const hintBadgeClass = getSeverityBadgeClass(hintSev);
   const levelBadgeClass = getSeverityBadgeClass(derivedLevel ?? hintSev);
   const levelLabel = derivedLevel ?? 'N/A';
   const threatIntel = parseThreatIntelEvidence(insight.evidence);
@@ -199,27 +199,77 @@ export const RiskDetail: React.FC = () => {
     dismissed: 'Dismissed',
   };
 
-  const topEvidenceFields = (() => {
-    if (!insight.evidence) return [] as string[];
-    let raw: unknown = insight.evidence;
-    if (typeof raw === 'string') {
-      try {
-        raw = JSON.parse(raw);
-      } catch {
-        return [];
-      }
-    }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-    return Object.keys(raw as Record<string, unknown>).slice(0, 8);
-  })();
   const evidenceLogEntries = buildEvidenceLogEntries(insight);
 
+  const resources = insight.affectedResources ?? [];
+  const firstPod = resources.find((r) => r.kind === 'Pod' && r.id);
+  const statusLabel = statusLabelMap[insight.status ?? ''] ?? (insight.status ?? 'Active');
+  const reference = formatRiskFindingReference(insight) || insight.cveId;
+
   return (
-      <PageLayout
+    <PageLayout
       title={insight.title}
-      description={`Finding #${insight.id}${formatRiskFindingReference(insight) ? ` · ${formatRiskFindingReference(insight)}` : ''}`}
+      description={`Finding #${insight.id}${reference ? ` · ${reference}` : ''}`}
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => navigate('/risks')}>
+          <ArrowLeft className="w-4 h-4 mr-2" /> Findings
+        </Button>
+      }
+    >
+      {/* What it is and what to do: level, status, owner and the actions in one strip. */}
+      <Card className="p-5 mb-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <div
+              className="flex items-center gap-2"
+              title={
+                insight.score != null
+                  ? `Risk level is the band of the resource's risk score (${insight.score}/100). The score is a priority signal, not an exploit probability.`
+                  : 'No risk score for this resource yet'
+              }
+            >
+              <span className={`px-3 py-1 rounded-md border text-body font-semibold capitalize ${levelBadgeClass}`}>{levelLabel}</span>
+              {insight.score != null ? (
+                <span className="text-body text-text tabular-nums">
+                  {insight.score}
+                  <span className="text-muted">/100</span>
+                </span>
+              ) : null}
+            </div>
+            <span className="rounded border border-border bg-surface-2 px-2 py-0.5 text-caption uppercase text-text">{statusLabel}</span>
+            <span className="text-caption text-muted" title="Severity the rule or CVE assigns. The risk level above decides priority.">
+              Rule severity <span className="text-text capitalize">{hintSev || '—'}</span>
+            </span>
+            {insight.insightType ? (
+              <span className="text-caption text-muted">
+                Type <span className="text-text">{insightTypeUiLabel(insight.insightType)}</span>
+              </span>
+            ) : null}
+            {insight.timestamp ? (
+              <span className="text-caption text-muted">
+                Detected <When iso={insight.timestamp} className="text-text" />
+              </span>
+            ) : null}
+            {threatIntel.cisaKev && (
+              <span
+                className="text-caption font-semibold uppercase px-2 py-0.5 rounded-full border border-rose-600/80 bg-rose-950/50 text-rose-200"
+                title="CVE listed in CISA Known Exploited Vulnerabilities catalog"
+              >
+                CISA KEV
+              </span>
+            )}
+            {threatIntel.epss != null && (
+              <span
+                className="text-caption font-medium px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-100"
+                title={threatIntel.epssSource ? `EPSS source: ${threatIntel.epssSource}` : 'FIRST.org EPSS (exploit probability)'}
+              >
+                EPSS {(threatIntel.epss * 100).toFixed(1)}%
+                {threatIntel.epssPercentile != null && (
+                  <span className="text-amber-200/80"> · p{(threatIntel.epssPercentile * 100).toFixed(0)}</span>
+                )}
+              </span>
+            )}
+          </div>
           {/* Same actions as the panel on Findings. */}
           <FindingActions
             insight={insight}
@@ -233,424 +283,265 @@ export const RiskDetail: React.FC = () => {
               void fetchInsight();
             }}
           />
-          <Button variant="secondary" onClick={() => navigate('/risks')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Findings
-          </Button>
         </div>
-      }
-    >
-      {/* Summary banner */}
-      <Card className="p-6 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-caption uppercase tracking-wide text-muted">Finding severity (hint)</span>
-            <span className={`px-3 py-1 rounded-full text-body font-medium w-fit ${hintBadgeClass}`}>
-              {hintSev || '—'}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-caption uppercase tracking-wide text-muted">Risk level (from score)</span>
-            <span
-              className={`px-3 py-1 rounded-full text-body font-medium w-fit ${levelBadgeClass}`}
-              title={insight.score != null ? `Derived from authoritative score ${insight.score}/100` : 'No resource score row; level not derived'}
-            >
-              {levelLabel}
-            </span>
-          </div>
-          <span className="text-muted text-body uppercase">
-            {statusLabelMap[insight.status ?? ''] ?? (insight.status ?? 'Active')}
-          </span>
-          {insight.score != null && (
-            <span className="text-muted text-body">
-              Risk score: <span className="text-text font-semibold">{insight.score != null ? `${insight.score}/100` : 'N/A'}</span>
-            </span>
-          )}
-          {threatIntel.cisaKev && (
-            <span
-              className="text-caption font-semibold uppercase px-2 py-0.5 rounded-full border border-rose-600/80 bg-rose-950/50 text-rose-200"
-              title="CVE listed in CISA Known Exploited Vulnerabilities catalog"
-            >
-              CISA KEV
-            </span>
-          )}
-          {threatIntel.epss != null && (
-            <span
-              className="text-caption font-medium px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-100"
-              title={threatIntel.epssSource ? `EPSS source: ${threatIntel.epssSource}` : 'FIRST.org EPSS (exploit probability)'}
-            >
-              EPSS {(threatIntel.epss * 100).toFixed(1)}%
-              {threatIntel.epssPercentile != null && (
-                <span className="text-amber-200/80"> · p{(threatIntel.epssPercentile * 100).toFixed(0)}</span>
-              )}
-            </span>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-3 text-caption text-muted">
-          {insight.insightType && (
-            <span>
-              <span className="text-muted uppercase tracking-wider mr-1">Type</span>
-              <span className="text-text">
-                {insightTypeUiLabel(insight.insightType)}
-              </span>
-            </span>
-          )}
-          {(formatRiskFindingReference(insight) || insight.cveId) && (
-            <span>
-              <span className="text-muted uppercase tracking-wider mr-1">Reference</span>
-              <span className="text-text font-mono">{formatRiskFindingReference(insight) || insight.cveId}</span>
-            </span>
-          )}
-        </div>
-        {insight.score != null && (
-          <div className="mt-3 rounded-lg border border-border bg-surface/60 px-3 py-2 text-caption text-muted">
-            Score interpretation: <span className="text-text">prioritization signal</span>, not exploit probability. Validate runtime evidence, impacted assets, and factor sources before using this for containment or acceptance decisions.
-          </div>
-        )}
-        {insight.description && (
-          <div className="mt-4">
-            <h4 className="text-caption font-semibold text-muted uppercase tracking-wider mb-1">
-              Why this risk matters
-            </h4>
-            <p className="text-text text-body">
-              {insight.description}
-            </p>
-          </div>
-        )}
-        {insight.impact && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <h4 className="text-caption font-semibold text-muted uppercase tracking-wider mb-1">
-              Remediation
-            </h4>
-            <p className="text-text text-body">{insight.impact}</p>
-          </div>
-        )}
       </Card>
 
-      {insight.breakdown && insight.breakdown.length > 0 && (
-        <Card className="p-6 mb-6">
-          <h3 className="text-section-title text-text mb-1 flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-brand" /> Why this score (breakdown)
-          </h3>
-          <p className="text-caption text-muted mb-4">
-            Contributions from normalized risk factors on the authoritative resource score. These are factor weights, not independent probabilities.
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className={UI_TABLE}>
-              <thead className={UI_THEAD_STICKY}>
-                <tr>
-                  <th className={UI_TH_COMPACT}>Factor</th>
-                  <th className={UI_TH_COMPACT}>Category</th>
-                  <th className={UI_TH_COMPACT}>Scope</th>
-                  <th className={UI_TH_COMPACT}>Source</th>
-                  <th className={`${UI_TH_COMPACT} text-right`}>Contribution</th>
-                </tr>
-              </thead>
-              <tbody>
-                {insight.breakdown.map((row, idx) => (
-                  <tr key={`${row.factor_id || idx}-${idx}`} className={UI_TR}>
-                    <td className={`${UI_TD_COMPACT_TIGHT} font-mono`}>{row.factor_id || '—'}</td>
-                    <td className={UI_TD_COMPACT_TIGHT}>{row.category || '—'}</td>
-                    <td className={UI_TD_COMPACT_TIGHT}>{row.scope || '—'}</td>
-                    <td className={UI_TD_COMPACT_TIGHT}>{row.source || '—'}</td>
-                    <td className={`${UI_TD_COMPACT_TIGHT} text-right tabular-nums`}>{Number(row.contribution).toFixed(2)} pts</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Affected Assets */}
-        <Card className="p-6">
-          <h3 className="text-section-title text-text mb-4 flex items-center gap-2">
-            <Box className="w-5 h-5 text-brand" /> Impacted Resources
-          </h3>
-          {insight.affectedResources?.length ? (
-            <ul className="space-y-2">
-              {insight.affectedResources.map((r, i) => (
-                <li key={r.id || i} className="flex items-center justify-between p-3 bg-surface/50 rounded-lg border border-border">
-                  <div>
-                    <span className="text-text font-medium">{r.name ?? r.id}</span>
-                    {r.namespace && <span className="text-muted ml-2">ns/{r.namespace}</span>}
-                    {r.kind && <span className="text-muted ml-2">({r.kind})</span>}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      if (r.kind === 'Pod' && r.id) navigate(podDetailPath(r.id, insight.clusterId));
-                      if (r.kind === 'ServiceAccount' && r.id) {
-                        const clusterQuery = insight.clusterId ? `?clusterId=${encodeURIComponent(insight.clusterId)}` : '';
-                        navigate(`/identities/uid/${encodeURIComponent(r.id)}${clusterQuery}`);
-                      }
-                    }}
-                    title={r.kind === 'Pod' ? 'View pod in Resources' : r.kind === 'ServiceAccount' ? 'View identity' : 'View resource'}
-                  >
-                    {r.kind === 'Pod' ? 'View pod' : r.kind === 'ServiceAccount' ? 'View identity' : 'View'}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-muted text-body">No impacted resources linked.</p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
+          {(insight.description || insight.impact) && (
+            <Card className="p-6">
+              {insight.description && (
+                <>
+                  <h3 className="text-section-title text-text mb-2">Why it matters</h3>
+                  <p className="text-text text-body">{insight.description}</p>
+                </>
+              )}
+              {insight.impact && (
+                <div className={insight.description ? 'mt-5 pt-5 border-t border-border' : ''}>
+                  <h3 className="text-section-title text-text mb-2">How to fix</h3>
+                  <p className="text-text text-body">{insight.impact}</p>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
 
-        {/* Timeline */}
-        <Card className="p-6">
-          <h3 className="text-section-title text-text mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-brand" /> Investigation Timeline
-          </h3>
-          <dl className="space-y-3 text-body">
-            {insight.timestamp && (
-              <div>
-                <dt className="text-muted">Detected</dt>
-                <dd className="text-text">{new Date(insight.timestamp).toLocaleString()}</dd>
-              </div>
-            )}
-            {insight.updatedAt && (
-              <div>
-                <dt className="text-muted">Updated</dt>
-                <dd className="text-text">{new Date(insight.updatedAt).toLocaleString()}</dd>
-              </div>
-            )}
-            {insight.resolvedAt && (
-              <div>
-                <dt className="text-muted">Resolved</dt>
-                <dd className="text-emerald-400">{new Date(insight.resolvedAt).toLocaleString()}</dd>
-              </div>
-            )}
-            {!insight.timestamp && !insight.updatedAt && !insight.resolvedAt && (
-              <p className="text-muted">No timeline data available.</p>
-            )}
-          </dl>
-        </Card>
-      </div>
-
-      {/* Runtime / Escape signals – for affected Pods so risk view shows escape info when runtime has it */}
-      {(insight.affectedResources?.some((r) => r.kind === 'Pod') || podRuntimeSignals.length > 0) && (
-        <Card className="p-6 mt-6">
-          <h3 className="text-section-title text-text mb-2 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-500" /> Runtime Evidence
-          </h3>
-          <p className="text-muted text-body mb-4">Runtime events linked to impacted pods (e.g. PROC_ROOT_PIVOT, FS_ESCAPE_ATTEMPT).</p>
-          {podRuntimeSignals.length === 0 ? (
-            <p className="text-muted text-body">No runtime evidence for impacted pods in selected time window.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className={UI_TABLE}>
-                <thead className={UI_THEAD_STICKY}>
-                  <tr>
-                    <th className={UI_TH_COMPACT}>Event</th>
-                    <th className={UI_TH_COMPACT}>Category</th>
-                    <th className={UI_TH_COMPACT}>Pod UID</th>
-                    <th className={UI_TH_COMPACT}>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {podRuntimeSignals.slice(0, 10).map((s) => (
-                    <tr key={s.id} className={UI_TR}>
-                      <td className={UI_TD_COMPACT_TIGHT}>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-caption font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
-                            {s.signalType}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded text-caption font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
-                            {runtimeSignalVisual(s.signalType).severity}
-                          </span>
-                        </div>
-                      </td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>{s.category}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono truncate max-w-[120px]`} title={s.podUid}>
-                        {s.podUid ? (
-                          <button
-                            type="button"
-                            onClick={() => navigate(podDetailPath(s.podUid, insight.clusterId))}
-                            className="text-brand hover:text-brand/90 hover:underline"
-                          >
-                            {`${s.podUid.slice(0, 8)}…`}
-                          </button>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
+          {insight.breakdown && insight.breakdown.length > 0 && (
+            <Card className="p-6">
+              <h3 className="text-section-title text-text mb-1 flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-brand" /> Why this score
+              </h3>
+              <p className="text-caption text-muted mb-4">Points each risk factor adds to the resource score.</p>
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className={UI_TABLE}>
+                  <thead className={UI_THEAD_STICKY}>
+                    <tr>
+                      <th className={UI_TH_COMPACT}>Factor</th>
+                      <th className={UI_TH_COMPACT}>Category</th>
+                      <th className={UI_TH_COMPACT}>Scope</th>
+                      <th className={UI_TH_COMPACT}>Source</th>
+                      <th className={`${UI_TH_COMPACT} text-right`}>Points</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {insight.breakdown.map((row, idx) => (
+                      <tr key={`${row.factor_id || idx}-${idx}`} className={UI_TR}>
+                        <td className={`${UI_TD_COMPACT_TIGHT} font-mono`}>{row.factor_id || '—'}</td>
+                        <td className={UI_TD_COMPACT_TIGHT}>{row.category || '—'}</td>
+                        <td className={UI_TD_COMPACT_TIGHT}>{row.scope || '—'}</td>
+                        <td className={UI_TD_COMPACT_TIGHT}>{row.source || '—'}</td>
+                        <td className={`${UI_TD_COMPACT_TIGHT} text-right tabular-nums`}>+{Number(row.contribution).toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           )}
-        </Card>
-      )}
 
-      {/* Evidence log: normalized from evidence, violated rules, and backend explanation refs. */}
-      {(evidenceLogEntries.length > 0 || insight.evidence != null || insight.violatedRules != null) && (
-        <Card className="p-6 mt-6">
-          <h3 className="text-section-title text-text mb-2 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-brand" /> Evidence Log
-          </h3>
-          <p className="text-muted text-body mb-4">
-            Normalized evidence from the finding payload, violated rules, and backend explanation refs.
-          </p>
-          {evidenceLogEntries.length === 0 ? (
-            <p className="text-muted text-body">No structured evidence entries were returned for this finding.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className={UI_TABLE}>
-                <thead className={UI_THEAD_STICKY}>
-                  <tr>
-                    <th className={UI_TH_COMPACT}>Type</th>
-                    <th className={UI_TH_COMPACT}>Evidence</th>
-                    <th className={UI_TH_COMPACT}>Value</th>
-                    <th className={UI_TH_COMPACT}>Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evidenceLogEntries.map((entry) => (
-                    <tr key={entry.id} className={UI_TR}>
-                      <td className={`${UI_TD_COMPACT_TIGHT} capitalize`}>{entry.kind}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>{entry.label}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} font-mono break-words max-w-[34rem]`}>{entry.value}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono`}>{entry.source}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {(linkedRules.length > 0 || linkedCapabilities.length > 0) && (
-        <Card className="p-6 mt-6">
-          <h3 className="text-section-title text-text mb-3 flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-brand" /> Linked Detections
-          </h3>
-          <p className="text-muted text-body mb-4">
-            Bridge from this finding to detection logic and capability semantics for faster root-cause triage.
-          </p>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-lg border border-border bg-surface/40 p-4">
-              <div className="text-caption uppercase tracking-wide text-muted mb-2">Rules</div>
-              {linkedRules.length === 0 ? (
-                <p className="text-body text-muted">No linked rules found in this finding.</p>
+          {/* Evidence log: normalized from evidence, violated rules, and backend explanation refs. */}
+          {(evidenceLogEntries.length > 0 || insight.evidence != null || insight.violatedRules != null) && (
+            <Card className="p-6">
+              <h3 className="text-section-title text-text mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-brand" /> Evidence
+              </h3>
+              {evidenceLogEntries.length === 0 ? (
+                <p className="text-muted text-body">No structured evidence was returned for this finding.</p>
               ) : (
-                <div className="space-y-2">
-                  {linkedRules.map((r) => (
-                    <div key={r.id} className="flex items-center justify-between gap-2 border border-border rounded px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="text-body text-text truncate">{r.name}</p>
-                        <p className="text-caption text-muted font-mono">{r.id} {r.source ? `· ${r.source}` : ''}</p>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className={UI_TABLE}>
+                    <thead className={UI_THEAD_STICKY}>
+                      <tr>
+                        <th className={UI_TH_COMPACT}>Type</th>
+                        <th className={UI_TH_COMPACT}>Evidence</th>
+                        <th className={UI_TH_COMPACT}>Value</th>
+                        <th className={UI_TH_COMPACT}>Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {evidenceLogEntries.map((entry) => (
+                        <tr key={entry.id} className={UI_TR}>
+                          <td className={`${UI_TD_COMPACT_TIGHT} capitalize`}>{entry.kind}</td>
+                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>{entry.label}</td>
+                          <td className={`${UI_TD_COMPACT_TIGHT} font-mono break-words max-w-[34rem]`}>{entry.value}</td>
+                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono`}>{entry.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {insight.evidence_chain_refs != null && insight.evidence_chain_refs.length > 0 && (
+                <details className="mt-4 text-caption">
+                  <summary className="cursor-pointer select-none text-muted hover:text-text">
+                    Pipeline refs ({insight.evidence_chain_refs.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1 font-mono text-text">
+                    {insight.evidence_chain_refs.map((row, idx) => (
+                      <li key={`${row.layer}-${row.ref}-${idx}`}>
+                        <span className="text-muted">{row.layer || '—'}</span>
+                        <span className="text-muted-2"> · </span>
+                        {row.ref}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </Card>
+          )}
+
+          {/* Runtime signals of the impacted pods, in the selected time window. */}
+          {firstPod && (
+            <Card className="p-6">
+              <h3 className="text-section-title text-text mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" /> Runtime activity
+              </h3>
+              {podRuntimeSignals.length === 0 ? (
+                <p className="text-muted text-body">No runtime signals on the impacted pod in the selected time window.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className={UI_TABLE}>
+                    <thead className={UI_THEAD_STICKY}>
+                      <tr>
+                        <th className={UI_TH_COMPACT}>Signal</th>
+                        <th className={UI_TH_COMPACT}>Category</th>
+                        <th className={UI_TH_COMPACT}>When</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {podRuntimeSignals.slice(0, 10).map((s) => (
+                        <tr key={s.id} className={UI_TR}>
+                          <td className={UI_TD_COMPACT_TIGHT}>
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-caption font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
+                                {s.signalType}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-caption font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
+                                {runtimeSignalVisual(s.signalType).severity}
+                              </span>
+                            </div>
+                          </td>
+                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>{s.category}</td>
+                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted`}>
+                            <When iso={s.createdAt} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+
+        <div className="min-w-0 space-y-6">
+          <Card className="p-5">
+            <h3 className="text-section-title text-text mb-3 flex items-center gap-2">
+              <Box className="w-5 h-5 text-brand" /> Resource
+            </h3>
+            {resources.length ? (
+              <ul className="space-y-3">
+                {resources.map((r, i) => {
+                  const ref = { uid: r.id, clusterId: insight.clusterId };
+                  return (
+                    <li key={r.id || i}>
+                      <div className="text-body text-text font-medium break-all">{r.name ?? r.id}</div>
+                      <div className="text-caption text-muted">
+                        {r.kind ?? 'Resource'}
+                        {r.namespace ? ` · ${r.namespace}` : ''}
                       </div>
-                      <Button size="sm" variant="secondary" onClick={() => navigate(`/rules/uid/${encodeURIComponent(r.id)}`)}>
-                        Open
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="rounded-lg border border-border bg-surface/40 p-4">
-              <div className="text-caption uppercase tracking-wide text-muted mb-2">Capabilities</div>
-              {linkedCapabilities.length === 0 ? (
-                <p className="text-body text-muted">No linked capabilities found in this finding.</p>
-              ) : (
-                <div className="space-y-2">
-                  {linkedCapabilities.map((c) => (
-                    <div key={c.capabilityId} className="border border-border rounded px-3 py-2">
-                      <p className="text-body text-text">{c.name || c.capabilityId}</p>
-                      <p className="text-caption text-muted font-mono">{c.capabilityId}</p>
-                    </div>
-                  ))}
-                  <Button size="sm" variant="secondary" onClick={() => navigate('/rules/catalog')}>
-                    Open Capabilities
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </Card>
-      )}
+                      {r.id && r.kind === 'Pod' ? (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-caption">
+                          <Link className="text-brand hover:underline" to={podDetailPath(r.id, insight.clusterId)}>Pod detail</Link>
+                          <Link className="text-brand hover:underline" to={attackPathsForPodPath(ref, { insightId: insight.id })}>Attack paths</Link>
+                          <Link className="text-brand hover:underline" to={networkForPodPath(ref, r.namespace)}>Network</Link>
+                          <Link className="text-brand hover:underline" to={findingsForResourcePath(ref)}>All findings</Link>
+                        </div>
+                      ) : r.id && r.kind === 'ServiceAccount' ? (
+                        <div className="mt-2 text-caption">
+                          <Link className="text-brand hover:underline" to={identityDetailPath(ref)}>Identity detail</Link>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-muted text-body">No resource linked.</p>
+            )}
+          </Card>
 
-      <Card className="p-6 mt-6">
-        <h3 className="text-section-title text-text mb-3 flex items-center gap-2">
-          <Link2 className="w-5 h-5 text-brand" /> Why triggered
-        </h3>
-        <p className="text-muted text-body mb-4">
-          Detection context that explains why this finding was raised.
-        </p>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-border bg-surface/40 p-4">
-            <div className="text-caption uppercase tracking-wide text-muted mb-2">
-              <span className={tooltipLabelClass} title="Source, rule signature, and rule role (Primary/Overlapping) for rules linked to this finding">
-                Rule context <Info className="w-3 h-3" />
-              </span>
-            </div>
+          <Card className="p-5">
+            <h3 className="text-section-title text-text mb-3 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-brand" /> Timeline
+            </h3>
+            <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-body">
+              <dt className="text-muted">Detected</dt>
+              <dd className="text-text"><When iso={insight.timestamp} /></dd>
+              {insight.assignee ? (
+                <>
+                  <dt className="text-muted">Owner</dt>
+                  <dd className="text-text">
+                    {insight.assignee}
+                    {insight.assignedAt ? <span className="text-muted"> · <When iso={insight.assignedAt} /></span> : null}
+                  </dd>
+                </>
+              ) : null}
+              <dt className="text-muted">Updated</dt>
+              <dd className="text-text"><When iso={insight.updatedAt} /></dd>
+              {insight.resolvedAt ? (
+                <>
+                  <dt className="text-muted">Resolved</dt>
+                  <dd className="text-emerald-400"><When iso={insight.resolvedAt} /></dd>
+                </>
+              ) : null}
+            </dl>
+          </Card>
+
+          <Card className="p-5">
+            <h3 className="text-section-title text-text mb-3 flex items-center gap-2">
+              <Link2 className="w-5 h-5 text-brand" /> Why it was raised
+            </h3>
+            <div className="text-caption uppercase tracking-wide text-muted mb-2">Rules</div>
             {linkedRules.length === 0 ? (
-              <p className="text-body text-muted">No explicit rule reference found for this finding.</p>
+              <p className="text-body text-muted">No rule reference on this finding.</p>
             ) : (
-              <div className="space-y-2">
+              <ul className="space-y-2">
                 {linkedRules.map((r) => (
-                  <div key={r.id} className="border border-border rounded px-3 py-2">
-                    <p className="text-body text-text">{r.name}</p>
-                    <p className="text-caption text-muted font-mono" title="Rule ID, source, and rule signature">
-                      {r.id} · source={r.source ?? 'unknown'} · signature={r.signature ?? 'n/a'}
-                    </p>
-                    <p className="text-caption text-muted" title="Primary rule = main rule in a shared signature group. Overlapping rule = same signature group, kept for compatibility/tuning.">
-                      {r.isCanonical === false ? `Overlapping rule of ${r.canonicalRuleId}` : 'Primary rule'}
-                    </p>
-                    <Button className="mt-2" size="sm" variant="secondary" onClick={() => navigate(`/rules/uid/${encodeURIComponent(r.id)}`)}>
-                      Open rule
-                    </Button>
-                  </div>
+                  <li key={r.id}>
+                    <Link className="text-body text-brand hover:underline" to={`/rules/uid/${encodeURIComponent(r.id)}`}>
+                      {r.name}
+                    </Link>
+                    <div
+                      className="text-caption text-muted font-mono"
+                      title="Primary rule = main rule in a shared signature group. Overlapping rule = same signature group, kept for compatibility or tuning."
+                    >
+                      {r.id}
+                      {r.source ? ` · ${r.source}` : ''}
+                      {r.isCanonical === false ? ` · overlaps ${r.canonicalRuleId}` : ''}
+                    </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
-          <div className="rounded-lg border border-border bg-surface/40 p-4">
-            <div className="text-caption uppercase tracking-wide text-muted mb-2">
-              <span className={tooltipLabelClass} title="Most informative keys in finding evidence payload for quick non-technical review">
-                Top evidence fields <Info className="w-3 h-3" />
-              </span>
-            </div>
-            {topEvidenceFields.length === 0 ? (
-              <p className="text-body text-muted">No structured evidence fields found.</p>
+            <div className="text-caption uppercase tracking-wide text-muted mt-4 mb-2">Capabilities</div>
+            {linkedCapabilities.length === 0 ? (
+              <p className="text-body text-muted">No capability linked to this finding.</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {topEvidenceFields.map((k) => (
-                  <span key={k} className="px-2 py-1 rounded text-caption bg-surface-2 text-text border border-border">
-                    {k}
-                  </span>
+              <ul className="space-y-2">
+                {linkedCapabilities.map((c) => (
+                  <li key={c.capabilityId}>
+                    <Link className="text-body text-brand hover:underline" to={`/capabilities/${encodeURIComponent(c.capabilityId)}`}>
+                      {c.name || c.capabilityId}
+                    </Link>
+                    <div className="text-caption text-muted font-mono">{c.capabilityId}</div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </Card>
         </div>
-        {insight.evidence_chain_refs != null && insight.evidence_chain_refs.length > 0 && (
-          <div className="mt-4 rounded-lg border border-border bg-surface/40 p-4">
-            <div className="text-caption uppercase tracking-wide text-muted mb-2">
-              <span
-                className={tooltipLabelClass}
-                title="Ordered layer + ref pairs from the backend explanation chain (one row per id)."
-              >
-                Evidence pipeline refs <Info className="w-3 h-3" />
-              </span>
-            </div>
-            <ul className="space-y-1 text-caption font-mono text-text">
-              {insight.evidence_chain_refs.map((row, idx) => (
-                <li key={`${row.layer}-${row.ref}-${idx}`}>
-                  <span className="text-muted">{row.layer || '—'}</span>
-                  <span className="text-muted-2"> · </span>
-                  {row.ref}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </Card>
+      </div>
     </PageLayout>
   );
 };
