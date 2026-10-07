@@ -32,7 +32,7 @@ const (
 
 // AttackPath represents an attack path from a source to a target
 type AttackPath struct {
-	// PathID is stable within one bundle response (p0, p1, …) and matches AttackChain.Paths entries.
+	// PathID is StablePathID (ap_…): the same path keeps it across recomputations. It matches AttackChain.Paths entries.
 	PathID      string     `json:"path_id,omitempty"`
 	Nodes       []PathNode `json:"nodes"`
 	Edges       []PathEdge `json:"edges"`

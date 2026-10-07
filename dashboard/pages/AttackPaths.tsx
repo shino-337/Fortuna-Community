@@ -163,7 +163,7 @@ function buildGraphDataFromPrimitivePaths(paths: AttackPath[], techniques?: any[
       const entryId = `path-entry:${pathId}`;
       nodeMap.set(entryId, {
         id: entryId,
-        label: pathId,
+        label: 'start',
         type: 'path_entry',
         risk: riskFromScore(p.total_risk),
         isStart: true,
@@ -494,44 +494,47 @@ export const AttackPaths: React.FC = () => {
     return groupedScenarios.filter((s) => scenarioPathIds(s).some((id) => podPathIds.has(id)));
   }, [groupedScenarios, podUidParam, selectedPodLoading, selectedPodIssue, podPathIds]);
 
-  // Level counts are paths (as in alerts and the summary); a level filter keeps scenarios with a path at that level.
   const scopedPaths = useMemo(
     () => (podUidParam && !selectedPodIssue ? selectedPodPaths : primitivePaths),
     [podUidParam, selectedPodIssue, selectedPodPaths, primitivePaths],
   );
-  const levelCounts = useMemo(() => {
-    const counts: Record<SeverityLevel, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-    if (scopedPaths.length === 0 && summary && !podUidParam) {
-      return { critical: summary.criticalPaths, high: summary.highPaths, medium: summary.mediumPaths, low: summary.lowPaths ?? 0 };
-    }
-    for (const p of scopedPaths) counts[pathRiskLevel(p.total_risk)] += 1;
-    return counts;
-  }, [scopedPaths, summary, podUidParam]);
 
-  const scenarioHasLevel = useCallback(
-    (s: GroupedScenario, level: SeverityLevel) => {
-      const ids = scenarioPathIds(s);
-      if (ids.some((id) => pathById.has(id))) return ids.some((id) => pathById.get(id) && pathRiskLevel(pathById.get(id)!.total_risk) === level);
+  // The list shows scenarios, so the level buttons count scenarios too: a scenario's level is its highest path.
+  const scenarioLevel = useCallback(
+    (s: GroupedScenario): SeverityLevel | null => {
       const risk = scenarioMaxRisk(s, pathById);
-      return risk !== null && pathRiskLevel(risk) === level;
+      return risk === null ? null : pathRiskLevel(risk);
     },
     [pathById],
   );
 
   const laneCounts = useMemo(() => {
-    const counts: Record<AttackPathConfidenceLane, number> = { confirmed: 0, probable: 0, theoretical: 0 };
+    const counts: Record<AttackPathConfidenceLane, number> = { observed: 0, inferred: 0, theoretical: 0 };
     for (const s of podScopedScenarios) counts[attackPathConfidenceLane(s)] += 1;
     return counts;
   }, [podScopedScenarios]);
 
+  const laneScenarios = useMemo(
+    () => (confidenceLane === 'all' ? podScopedScenarios : podScopedScenarios.filter((s) => attackPathConfidenceLane(s) === confidenceLane)),
+    [podScopedScenarios, confidenceLane],
+  );
+
+  const levelCounts = useMemo(() => {
+    const counts: Record<SeverityLevel, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const s of laneScenarios) {
+      const level = scenarioLevel(s);
+      if (level) counts[level] += 1;
+    }
+    return counts;
+  }, [laneScenarios, scenarioLevel]);
+
   const visibleScenarios = useMemo(() => {
-    let list = podScopedScenarios;
-    if (confidenceLane !== 'all') list = list.filter((s) => attackPathConfidenceLane(s) === confidenceLane);
-    if (levelFilter) list = list.filter((s) => scenarioHasLevel(s, levelFilter));
+    let list = laneScenarios;
+    if (levelFilter) list = list.filter((s) => scenarioLevel(s) === levelFilter);
     return [...list].sort(
       (a, b) => (scenarioMaxRisk(b, pathById) ?? -1) - (scenarioMaxRisk(a, pathById) ?? -1) || b.maxStrength - a.maxStrength,
     );
-  }, [podScopedScenarios, confidenceLane, levelFilter, scenarioHasLevel, pathById]);
+  }, [laneScenarios, levelFilter, scenarioLevel, pathById]);
 
   const sharedFixes = useMemo(() => fixesAcrossScenarios(visibleScenarios), [visibleScenarios]);
 
@@ -573,10 +576,11 @@ export const AttackPaths: React.FC = () => {
 
   const graphForView = useMemo(() => {
     if (primitivePaths.length === 0) return graphData;
-    const steps = currentScenario?.representativeChain?.steps;
     if (showAllPaths || !currentScenario) {
-      return buildGraphDataFromPrimitivePaths(scopedPaths.length > 0 ? scopedPaths : primitivePaths, steps);
+      // Step numbers belong to one scenario; drawing them on every path would mislabel the others.
+      return buildGraphDataFromPrimitivePaths(scopedPaths.length > 0 ? scopedPaths : primitivePaths);
     }
+    const steps = currentScenario.representativeChain?.steps;
     const ids = new Set(scenarioPathIds(currentScenario));
     const subset = primitivePaths.filter((p) => ids.has(p.path_id || ''));
     return buildGraphDataFromPrimitivePaths(subset.length > 0 ? subset : primitivePaths, steps);
@@ -622,6 +626,8 @@ export const AttackPaths: React.FC = () => {
   }, [podUidParam, selectedPodPaths, primitivePaths]);
 
   const filtersActive = Boolean(levelFilter) || confidenceLane !== 'all';
+  // Alerts and the summary count paths; say how many paths sit behind the scenarios listed.
+  const pathTotal = scopedPaths.length > 0 ? scopedPaths.length : podUidParam ? 0 : summary?.totalPaths ?? 0;
 
   /* ─── render ─────────────────────────────────────────────── */
 
@@ -659,14 +665,14 @@ export const AttackPaths: React.FC = () => {
           {podUidParam ? (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-body">
               <span className="text-text">
-                Through pod <span className="font-semibold">{podLabel}</span>
+                From pod <span className="font-semibold">{podLabel}</span>
               </span>
               <span className="text-caption text-muted">
                 {selectedPodLoading
                   ? 'Loading…'
                   : selectedPodIssue
                     ? selectedPodIssue.title
-                    : `${selectedPodPaths.length} ${selectedPodPaths.length === 1 ? 'path runs' : 'paths run'} through this pod`}
+                    : `${selectedPodPaths.length} ${selectedPodPaths.length === 1 ? 'path starts' : 'paths start'} at this pod`}
               </span>
               <span className="ml-auto flex flex-wrap items-center gap-3 text-caption font-semibold">
                 {canOpenInventory ? (
@@ -706,11 +712,11 @@ export const AttackPaths: React.FC = () => {
             <select
               value={confidenceLane}
               onChange={(e) => setConfidenceLane(e.target.value as AttackPathConfidenceLane | 'all')}
-              aria-label="Confidence"
+              aria-label="Evidence"
               className="min-h-9 rounded-lg border border-border bg-base px-3 text-caption text-text"
             >
-              <option value="all">Any confidence</option>
-              {(['confirmed', 'probable', 'theoretical'] as const).map((lane) => (
+              <option value="all">Any evidence</option>
+              {(['observed', 'inferred', 'theoretical'] as const).map((lane) => (
                 <option key={lane} value={lane}>
                   {ATTACK_PATH_LANE_LABELS[lane]} ({laneCounts[lane]})
                 </option>
@@ -728,13 +734,17 @@ export const AttackPaths: React.FC = () => {
                 Reset filters
               </button>
             ) : null}
+            <span className="ml-auto text-caption text-muted">
+              {podScopedScenarios.length.toLocaleString()} {podScopedScenarios.length === 1 ? 'scenario' : 'scenarios'}
+              {pathTotal > 0 ? ` · ${pathTotal.toLocaleString()} ${pathTotal === 1 ? 'path' : 'paths'}` : ''}
+            </span>
           </div>
 
           <GraphVisibilityOverlay semanticState={graphVisibility.semanticState} reason={graphVisibility.reason} />
 
           {visibleScenarios.length === 0 ? (
             <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-border text-muted">
-              <p>{podUidParam && !filtersActive ? 'No attack path runs through this pod.' : 'No attack paths match these filters.'}</p>
+              <p>{podUidParam && !filtersActive ? 'No attack path starts at this pod.' : 'No attack paths match these filters.'}</p>
               {filtersActive ? (
                 <Button
                   variant="secondary"
@@ -750,7 +760,7 @@ export const AttackPaths: React.FC = () => {
             </div>
           ) : (
             <>
-              <BreakTheseFirst fixes={sharedFixes} scenarios={visibleScenarios} onSelect={selectScenario} />
+              <BreakTheseFirst fixes={sharedFixes} scenarios={visibleScenarios} pathById={pathById} onSelect={selectScenario} />
 
               <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:items-start">
                 <div className="min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto">
@@ -786,7 +796,7 @@ export const AttackPaths: React.FC = () => {
                           <div className="flex items-center justify-between gap-2">
                             <h3 className="text-meta font-semibold uppercase tracking-wider text-muted">{showAllPaths ? 'All paths' : 'This path'}</h3>
                             <button type="button" onClick={() => setShowAllPaths((v) => !v)} className="text-caption font-semibold text-brand hover:underline">
-                              {showAllPaths ? 'Show this path only' : podUidParam ? 'Show every path through this pod' : 'Show every path'}
+                              {showAllPaths ? 'Show this path only' : podUidParam ? 'Show every path from this pod' : 'Show every path'}
                             </button>
                           </div>
                           <div className="relative overflow-hidden rounded-lg border border-border bg-base">

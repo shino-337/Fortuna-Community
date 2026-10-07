@@ -124,10 +124,11 @@ func persistAttackPathsForIdentity(ctx context.Context, db *gorm.DB, id resource
 		return nil
 	}
 	newByPathID := map[string]AttackPath{}
+	pathIDs := StablePathIDs(paths)
 	for i, p := range paths {
 		nodesJSON, _ := json.Marshal(p.Nodes)
 		edgesJSON, _ := json.Marshal(p.Edges)
-		pathID := fmt.Sprintf("%s-path-%d", id.ResourceUID, i)
+		pathID := pathIDs[i]
 		newByPathID[pathID] = p
 		record := models.AttackPath{
 			ClusterID:       id.ClusterID,
@@ -148,6 +149,14 @@ func persistAttackPathsForIdentity(ctx context.Context, db *gorm.DB, id resource
 			FirstOrCreate(&record).Error; err != nil {
 			return fmt.Errorf("upsert scoped path %s: %w", pathID, err)
 		}
+	}
+
+	// Rows saved under the old positional id (<podUid>-path-<i>) are the same paths under
+	// a new id; drop them now instead of letting hysteresis keep a second copy alive.
+	if err := db.WithContext(ctx).
+		Where("cluster_id = ? AND pod_uid = ? AND path_id LIKE ?", id.ClusterID, id.ResourceUID, id.ResourceUID+"-path-%").
+		Delete(&models.AttackPath{}).Error; err != nil {
+		return err
 	}
 
 	grace := attackPathHysteresisGraceFromEnv()

@@ -964,11 +964,10 @@ func (b *RelationalPathBuilder) GetChainsWithPaths(ctx context.Context, clusterI
 	if err != nil {
 		return nil, nil, err
 	}
+	AssignStablePathIDs(paths)
 	pathByID := make(map[string]AttackPath, len(paths))
 	for i := range paths {
-		pid := fmt.Sprintf("p%d", i)
-		paths[i].PathID = pid
-		pathByID[pid] = paths[i]
+		pathByID[paths[i].PathID] = paths[i]
 	}
 	chains := DetectChainsWithHints(paths, snap.HardeningHints)
 	EnrichAttackChainsWithRuntimeMitre(b.db, clusterID, chains, paths)
@@ -1184,9 +1183,7 @@ func (b *RelationalPathBuilder) BuildAttackPathsViewBundle(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	for i := range paths {
-		paths[i].PathID = fmt.Sprintf("p%d", i)
-	}
+	AssignStablePathIDs(paths)
 	summary, err := b.summarizePaths(ctx, paths)
 	if err != nil {
 		return nil, err

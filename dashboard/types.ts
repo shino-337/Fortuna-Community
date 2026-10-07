@@ -676,7 +676,7 @@ export interface AttackPathEdge {
 
 /** Full attack path with graph data and scoring. */
 export interface AttackPath {
-  /** Stable id within one bundle (p0, p1, …); matches AttackChain.paths[] */
+  /** Content-based id (ap_…) that survives recomputation; matches AttackChain.paths[] */
   path_id?: string;
   nodes: AttackPathNode[];
   edges: AttackPathEdge[];
