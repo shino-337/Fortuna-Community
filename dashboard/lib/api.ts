@@ -565,7 +565,13 @@ const requestBlob = async (path: string): Promise<Blob> => {
 function mapNotification(n: Record<string, unknown>): Notification {
   const severity = String(n.severity ?? 'info').toLowerCase();
   const readAt = n.readAt ? String(n.readAt) : undefined;
-  const type = severity === 'critical' || severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'info';
+  // High findings and attack paths are warnings, not info (they used to get the blue info icon).
+  const type =
+    severity === 'critical' || severity === 'error'
+      ? 'error'
+      : severity === 'high' || severity === 'warning' || severity === 'medium'
+        ? 'warning'
+        : 'info';
   return {
     id: String(n.id ?? ''),
     title: String(n.title ?? ''),

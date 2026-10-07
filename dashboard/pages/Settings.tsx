@@ -11,6 +11,7 @@ import { Dialog } from '../design-system/components/Dialog';
 import { useToast } from '../design-system/components/Toast';
 import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH, UI_TR, UI_TD } from '../lib/tableChrome';
+import { UI_FILTER_SELECT_SM } from '../lib/formChrome';
 import {
   FORTUNA_ADMIN_VS_USER_ADMIN,
   FORTUNA_ROLE_HELP_ROWS,
@@ -108,6 +109,23 @@ export const Settings: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const clusterById = useMemo(() => new Map(clusters.map((cluster) => [cluster.id, cluster])), [clusters]);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
+  const userRoleOptions = useMemo(
+    () => Array.from(new Set(users.map((u) => normalizeFortunaRoleKey(u.role)).filter(Boolean))).sort() as string[],
+    [users],
+  );
+  const visibleUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    return users.filter((u) => {
+      if (q && !`${u.username ?? ''} ${u.name ?? ''} ${u.email ?? ''}`.toLowerCase().includes(q)) return false;
+      if (userRoleFilter && normalizeFortunaRoleKey(u.role) !== userRoleFilter) return false;
+      if (userStatusFilter === 'active' && u.active === false) return false;
+      if (userStatusFilter === 'disabled' && u.active !== false) return false;
+      return true;
+    });
+  }, [users, userSearch, userRoleFilter, userStatusFilter]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [clusterAvailabilityIssue, setClusterAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
@@ -410,25 +428,49 @@ export const Settings: React.FC = () => {
           ))}
         </nav>
       </div>
-      <div className="grid gap-6">
+      <div className="mt-4 grid gap-6">
         {activeTab === 'Users' && (
           <>
-            <Card className="p-4 sm:p-5 border border-border/90 bg-surface-2/25">
-              <h3 className="mb-3 text-card-title text-text">Fortuna application roles</h3>
-              <ul className="grid gap-3 sm:grid-cols-2 text-caption text-muted">
-                {FORTUNA_ROLE_HELP_ROWS.map((row) => (
-                  <li key={row.key} className="rounded-lg border border-border/70 bg-base/40 px-3 py-2.5">
-                    <span className="font-semibold text-text">{row.title}</span>
-                    <p className="mt-1.5 leading-snug">{row.body}</p>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-caption text-muted mt-4 pt-3 border-t border-border leading-snug">
-                <span className="font-medium text-text">Admin vs User admin:</span> {FORTUNA_ADMIN_VS_USER_ADMIN}
-              </p>
-            </Card>
-            {canRegister && canUsersCreate && canUsers && (
-              <div className="flex justify-end">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="search"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Search name or email"
+                  aria-label="Search users"
+                  className={`${UI_FILTER_SELECT_SM} w-64`}
+                />
+                <select
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  aria-label="Filter by role"
+                  className={UI_FILTER_SELECT_SM}
+                >
+                  <option value="">All roles</option>
+                  {userRoleOptions.map((role) => (
+                    <option key={role} value={role}>
+                      {fortunaRoleShortLabel(role)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={userStatusFilter}
+                  onChange={(e) => setUserStatusFilter(e.target.value as 'all' | 'active' | 'disabled')}
+                  aria-label="Filter by status"
+                  className={UI_FILTER_SELECT_SM}
+                >
+                  <option value="all">Any status</option>
+                  <option value="active">Active</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+                <span className="text-caption text-muted">
+                  {visibleUsers.length === users.length
+                    ? `${users.length} user${users.length === 1 ? '' : 's'}`
+                    : `${visibleUsers.length} of ${users.length} users`}
+                </span>
+              </div>
+              {canRegister && canUsersCreate && canUsers && (
                 <Button
                   type="button"
                   size="sm"
@@ -441,8 +483,8 @@ export const Settings: React.FC = () => {
                 >
                   <Plus className="w-4 h-4 mr-2" /> Add user
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
             <Card className="p-0 overflow-hidden">
             {loadingUsers ? (
               <div className="p-8 text-muted">Loading users...</div>
@@ -468,11 +510,18 @@ export const Settings: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((u) => (
+                    {visibleUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={canUsersRowActions ? 5 : 4} className={`${UI_TD} py-6 text-center text-muted`}>
+                          No users match these filters.
+                        </td>
+                      </tr>
+                    ) : null}
+                    {visibleUsers.map((u) => (
                       <tr key={u.id} className={UI_TR}>
                         <td className={UI_TD}>
                           <div className="text-text font-medium">{u.username || u.name || 'unknown'}</div>
-                          <div className="text-muted text-caption">{u.email || 'N/A'}</div>
+                          <div className="text-muted text-caption">{u.email || '—'}</div>
                         </td>
                         <td className={UI_TD}>
                           {(() => {
@@ -635,6 +684,20 @@ export const Settings: React.FC = () => {
               </div>
             )}
           </Card>
+            <details className="rounded-lg border border-border/90 bg-surface-2/25 px-4 py-3 sm:px-5">
+              <summary className="cursor-pointer select-none text-body font-medium text-text">What each role can do</summary>
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2 text-caption text-muted">
+                {FORTUNA_ROLE_HELP_ROWS.map((row) => (
+                  <li key={row.key} className="rounded-lg border border-border/70 bg-base/40 px-3 py-2.5">
+                    <span className="font-semibold text-text">{row.title}</span>
+                    <p className="mt-1.5 leading-snug">{row.body}</p>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-caption text-muted mt-4 pt-3 border-t border-border leading-snug">
+                <span className="font-medium text-text">Admin vs User admin:</span> {FORTUNA_ADMIN_VS_USER_ADMIN}
+              </p>
+            </details>
           </>
         )}
 

@@ -104,7 +104,7 @@ export const Governance: React.FC = () => {
 
   if (!allowed) {
     return (
-      <PageLayout title={PAGE_TITLES.governance} description="Requires system.audit.read.">
+      <PageLayout title={PAGE_TITLES.governance} description="You need the audit permission to see this page.">
         <Card className="p-6 text-muted">You do not have permission to view the audit log.</Card>
       </PageLayout>
     );
@@ -113,7 +113,7 @@ export const Governance: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.governance}
-      description="Who did what in Fortuna, what the platform changed, and who can do what. The API enforces system.audit.read."
+      description="Who did what in Fortuna, what the platform changed, and who can do what."
     >
       <Tabs
         variant="underline"
