@@ -49,7 +49,7 @@ export type InventoryView = 'workloads' | 'identities' | 'clusters';
 /** Inventory, optionally on one view and filtered (e.g. the workloads on one node or in one namespace). */
 export function inventoryPath(
   view: InventoryView = 'workloads',
-  filters?: { clusterId?: string | null; namespace?: string; node?: string; kind?: string },
+  filters?: { clusterId?: string | null; namespace?: string; node?: string; kind?: string; search?: string },
 ): string {
   const params = new URLSearchParams();
   if (view !== 'workloads') params.set('view', view);
@@ -57,6 +57,7 @@ export function inventoryPath(
   if (filters?.namespace) params.set('namespace', filters.namespace);
   if (filters?.node) params.set('node', filters.node);
   if (filters?.kind) params.set('kind', filters.kind);
+  if (filters?.search) params.set('q', filters.search);
   const qs = params.toString();
   return `/resources${qs ? `?${qs}` : ''}`;
 }

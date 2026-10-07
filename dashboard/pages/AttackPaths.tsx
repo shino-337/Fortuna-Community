@@ -6,12 +6,13 @@ import { SemanticEmptyState } from '../design-system/components/SemanticEmptySta
 import { Button } from '../components/ui/Button';
 import { AttackPathGraph } from '../components/AttackPathGraph';
 import { api, isApiError } from '../lib/api';
-import type { AttackPathGraphData, AttackPathSummary, AttackPath, AttackChain } from '../types';
+import type { AttackPathGraphData, AttackPathSummary, AttackPath, AttackChain, AttackPathNode, AttackStep } from '../types';
 import { useClusterStore } from '../store/clusterStore';
-import { RefreshCw, Shield } from 'lucide-react';
+import { RefreshCw, Shield, X } from 'lucide-react';
 import clsx from 'clsx';
 import { AttackStepsTimeline } from '../components/AttackStepsTimeline';
 import { pathRiskLevel, type SeverityLevel } from '../lib/severity';
+import { scenarioEnds } from '../lib/attackPathNarrative';
 import {
   groupChains,
   groupPrimitivePaths,
@@ -24,7 +25,17 @@ import { ATTACK_PATH_LANE_LABELS, attackPathConfidenceLane, type AttackPathConfi
 import { AddToCaseButton } from '../components/AddToCaseButton';
 import { findingsForResourcePath, identityDetailPath } from '../lib/entityLinks';
 import { attackPathInvestigationEntity } from '../lib/investigationEntities';
-import { AttackPathDetail, AttackPathList, BreakTheseFirst } from '../components/attack-paths/AttackPathWorkspace';
+import {
+  AttackPathDetail,
+  AttackPathList,
+  ChokePoints,
+  FixFilterChip,
+  PostureStrip,
+  rankSharedFixes,
+  scenarioTargetGroup,
+} from '../components/attack-paths/AttackPathWorkspace';
+import { AttackPathOverview } from '../components/attack-paths/AttackPathOverview';
+import { nodeHref, techniqueStepIndex, TARGET_GROUP_LABEL, type TargetGroup } from '../lib/attackPathSteps';
 import { GraphVisibilityOverlay } from '../components/GraphVisibilityOverlay';
 import { useFeatureVisibility } from '../hooks/useVisibility';
 import { useIncidentMode } from '../hooks/useIncidentMode';
@@ -115,35 +126,7 @@ function shouldStopAttackPathFallback(error: unknown): boolean {
 
 const riskLabel = pathRiskLevel;
 
-const EDGE_TO_TECHNIQUE_CATEGORIES: Record<string, string[]> = {
-  ESC_HOSTPATH_NODE: ['ESCAPE_HOSTPATH'],
-  ESC_HOSTPID: ['ESCAPE_HOSTPID'],
-  ESC_PRIV_POD: ['ESCAPE_PRIVILEGED'],
-  CONTAINER_ESCAPE: ['ESCAPE_HOSTPATH', 'ESCAPE_RUNTIME', 'ESCAPE_PROC_ROOT', 'ESCAPE_PRIVILEGED', 'ESCAPE_HOSTPID'],
-  HOST_ACCESS: ['ESCAPE_HOSTPATH', 'ESCAPE_RUNTIME', 'ESCAPE_PROC_ROOT', 'ESCAPE_PRIVILEGED', 'ESCAPE_HOSTPID'],
-  LATERAL_MOVE: ['LATERAL_NETWORK'],
-  NETWORK_REACH: ['LATERAL_NETWORK'],
-  NETWORK_REACH_SOFT: ['LATERAL_NETWORK'],
-  SERVICE_ACCOUNT_ACCESS: ['KUBELET_TOKEN_HARVEST', 'RUNTIME_TOKEN_HARVEST', 'SA_TOKEN_REUSE'],
-  RBAC_BINDING: ['RBAC_PRIV_ESC', 'CLUSTER_ADMIN_ESC'],
-  GRANTS_ROLE: ['RBAC_PRIV_ESC', 'CLUSTER_ADMIN_ESC'],
-  CAN_STEAL_CREDENTIALS: ['KUBELET_API_PROBE', 'KUBELET_TOKEN_HARVEST', 'RUNTIME_TOKEN_HARVEST'],
-};
-
-function getTechniqueStepIndex(edgeType: string, techniques?: any[]): number | undefined {
-  if (!techniques || techniques.length === 0) return undefined;
-  const categories = EDGE_TO_TECHNIQUE_CATEGORIES[edgeType.toUpperCase()];
-  if (!categories) return undefined;
-  
-  for (let i = 0; i < techniques.length; i++) {
-    if (categories.includes(techniques[i].technique_id)) {
-      return i + 1; // 1-based index matching Technical Steps panel
-    }
-  }
-  return undefined;
-}
-
-function buildGraphDataFromPrimitivePaths(paths: AttackPath[], techniques?: any[]): AttackPathGraphData {
+function buildGraphDataFromPrimitivePaths(paths: AttackPath[], techniques?: AttackStep[]): AttackPathGraphData {
   const nodeMap = new Map<string, AttackPathGraphData['nodes'][0]>();
   const linkMap = new Map<string, AttackPathGraphData['links'][0]>();
   const riskFromScore = riskLabel;
@@ -209,7 +192,7 @@ function buildGraphDataFromPrimitivePaths(paths: AttackPath[], techniques?: any[
       const k = `${e.source}->${e.target}`;
       const existing = linkMap.get(k);
       
-      const mappedStepIdx = getTechniqueStepIndex(e.type, techniques);
+      const mappedStepIdx = techniqueStepIndex(e.type, techniques);
       const isMetaEdge = e.type === 'HAS_ATTACK_STEP' || e.type === 'CAN_STEAL_CREDENTIALS';
       
       if (!existing) {
@@ -307,9 +290,12 @@ export const AttackPaths: React.FC = () => {
   const [chains, setChains] = useState<AttackChain[]>([]);
   const [primitivePaths, setPrimitivePaths] = useState<AttackPath[]>([]);
   const [selectedScenarioKey, setSelectedScenarioKey] = useState<string | null>(null);
-  const [showAllPaths, setShowAllPaths] = useState(false);
   const [confidenceLane, setConfidenceLane] = useState<AttackPathConfidenceLane | 'all'>('all');
-  const [levelFilter, setLevelFilter] = useState<SeverityLevel | ''>('');
+  // 'urgent' = critical or high, set from the posture strip.
+  const [levelFilter, setLevelFilter] = useState<SeverityLevel | 'urgent' | ''>('');
+  const [targetFilter, setTargetFilter] = useState<TargetGroup | ''>('');
+  const [namespaceFilter, setNamespaceFilter] = useState('');
+  const [fixFilter, setFixFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dataIssue, setDataIssue] = useState<AttackPathIssue | null>(null);
@@ -528,15 +514,32 @@ export const AttackPaths: React.FC = () => {
     return counts;
   }, [laneScenarios, scenarioLevel]);
 
-  const visibleScenarios = useMemo(() => {
+  // Every filter but the fix filter: the choke points are ranked over these, so choosing a fix never hides the others.
+  const filteredScenarios = useMemo(() => {
     let list = laneScenarios;
-    if (levelFilter) list = list.filter((s) => scenarioLevel(s) === levelFilter);
+    if (levelFilter === 'urgent') list = list.filter((s) => ['critical', 'high'].includes(scenarioLevel(s) ?? ''));
+    else if (levelFilter) list = list.filter((s) => scenarioLevel(s) === levelFilter);
+    if (targetFilter) list = list.filter((s) => scenarioTargetGroup(s, pathById) === targetFilter);
+    if (namespaceFilter) list = list.filter((s) => String(scenarioEnds(s, pathById).entry?.properties?.namespace || '') === namespaceFilter);
     return [...list].sort(
       (a, b) => (scenarioMaxRisk(b, pathById) ?? -1) - (scenarioMaxRisk(a, pathById) ?? -1) || b.maxStrength - a.maxStrength,
     );
-  }, [laneScenarios, levelFilter, scenarioLevel, pathById]);
+  }, [laneScenarios, levelFilter, targetFilter, namespaceFilter, scenarioLevel, pathById]);
 
-  const sharedFixes = useMemo(() => fixesAcrossScenarios(visibleScenarios), [visibleScenarios]);
+  const rankedFixes = useMemo(
+    () => rankSharedFixes(fixesAcrossScenarios(filteredScenarios), filteredScenarios, pathById),
+    [filteredScenarios, pathById],
+  );
+  const postureFixes = useMemo(
+    () => rankSharedFixes(fixesAcrossScenarios(podScopedScenarios), podScopedScenarios, pathById),
+    [podScopedScenarios, pathById],
+  );
+  const activeFix = rankedFixes.find((f) => f.label === fixFilter) ?? null;
+
+  const visibleScenarios = useMemo(
+    () => (activeFix ? filteredScenarios.filter((s) => activeFix.scenarioKeys.includes(s.key)) : filteredScenarios),
+    [filteredScenarios, activeFix],
+  );
 
   const currentScenario = visibleScenarios.find((s) => s.key === selectedScenarioKey) || visibleScenarios[0];
 
@@ -553,7 +556,6 @@ export const AttackPaths: React.FC = () => {
   const selectScenario = useCallback(
     (key: string) => {
       setSelectedScenarioKey(key);
-      setShowAllPaths(false);
       const scenario = groupedScenarios.find((s) => s.key === key);
       const firstPath = scenario ? scenarioPathIds(scenario)[0] : '';
       if (firstPath) {
@@ -576,15 +578,34 @@ export const AttackPaths: React.FC = () => {
 
   const graphForView = useMemo(() => {
     if (primitivePaths.length === 0) return graphData;
-    if (showAllPaths || !currentScenario) {
-      // Step numbers belong to one scenario; drawing them on every path would mislabel the others.
-      return buildGraphDataFromPrimitivePaths(scopedPaths.length > 0 ? scopedPaths : primitivePaths);
-    }
+    if (!currentScenario) return buildGraphDataFromPrimitivePaths(primitivePaths);
     const steps = currentScenario.representativeChain?.steps;
     const ids = new Set(scenarioPathIds(currentScenario));
     const subset = primitivePaths.filter((p) => ids.has(p.path_id || ''));
     return buildGraphDataFromPrimitivePaths(subset.length > 0 ? subset : primitivePaths, steps);
-  }, [showAllPaths, currentScenario, graphData, primitivePaths, scopedPaths]);
+  }, [currentScenario, graphData, primitivePaths]);
+
+  // Step numbers belong to one scenario; the whole-cluster graph carries none.
+  const fullGraph = useMemo(
+    () => (primitivePaths.length === 0 ? graphData : buildGraphDataFromPrimitivePaths(scopedPaths.length > 0 ? scopedPaths : primitivePaths)),
+    [graphData, primitivePaths, scopedPaths],
+  );
+
+  const view = searchParams.get('view') === 'overview' ? 'overview' : 'paths';
+  const setView = useCallback(
+    (v: 'paths' | 'overview') => {
+      const next = new URLSearchParams(searchParams);
+      if (v === 'overview') next.set('view', 'overview');
+      else next.delete('view');
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const hrefFor = useCallback(
+    (node: AttackPathNode) => nodeHref(node, effectiveClusterId || null, canOpenInventory),
+    [effectiveClusterId, canOpenInventory],
+  );
 
   const handleNodeClick = useCallback(
     (nodeId: string, type: string) => {
@@ -625,7 +646,16 @@ export const AttackPaths: React.FC = () => {
     return podUidParam;
   }, [podUidParam, selectedPodPaths, primitivePaths]);
 
-  const filtersActive = Boolean(levelFilter) || confidenceLane !== 'all';
+  const filtersActive = Boolean(levelFilter) || confidenceLane !== 'all' || Boolean(targetFilter) || Boolean(namespaceFilter) || Boolean(fixFilter);
+  const resetFilters = () => {
+    setLevelFilter('');
+    setConfidenceLane('all');
+    setTargetFilter('');
+    setNamespaceFilter('');
+    setFixFilter('');
+  };
+  const scrollTo = (id: string) =>
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   // Alerts and the summary count paths; say how many paths sit behind the scenarios listed.
   const pathTotal = scopedPaths.length > 0 ? scopedPaths.length : podUidParam ? 0 : summary?.totalPaths ?? 0;
 
@@ -690,24 +720,63 @@ export const AttackPaths: React.FC = () => {
             </div>
           ) : null}
 
+          <PostureStrip
+            scenarios={podScopedScenarios}
+            pathById={pathById}
+            ranked={postureFixes}
+            targetFilter={targetFilter}
+            onTarget={(g) => {
+              setTargetFilter(g);
+              setView('paths');
+            }}
+            onUrgent={() => {
+              setLevelFilter((cur) => (cur === 'urgent' ? '' : 'urgent'));
+              setView('paths');
+            }}
+            onFixes={() => {
+              resetFilters();
+              setView('paths');
+              scrollTo('choke-points');
+            }}
+          />
+
           <div className="flex flex-wrap items-center gap-2">
-            <div role="group" aria-label="Path level" className="flex flex-wrap gap-2">
-              {(['critical', 'high', 'medium', 'low'] as const).map((lv) => (
+            <div role="group" aria-label="View" className="flex rounded-lg border border-border p-0.5">
+              {(['paths', 'overview'] as const).map((v) => (
                 <button
-                  key={lv}
+                  key={v}
                   type="button"
-                  aria-pressed={levelFilter === lv}
-                  onClick={() => setLevelFilter((cur) => (cur === lv ? '' : lv))}
+                  aria-pressed={view === v}
+                  onClick={() => setView(v)}
                   className={clsx(
-                    'inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-caption font-semibold transition-colors',
-                    levelFilter === lv ? 'border-brand bg-brand/15 text-text' : 'border-border bg-base/40 text-muted hover:text-text',
+                    'min-h-8 rounded-md px-3 text-caption font-semibold',
+                    view === v ? 'bg-brand/15 text-text' : 'text-muted hover:text-text',
                   )}
                 >
-                  <span className={clsx('h-2 w-2 rounded-full', LEVEL_DOT[lv])} aria-hidden />
-                  {lv[0].toUpperCase() + lv.slice(1)}
-                  <span className="tabular-nums text-text">{levelCounts[lv].toLocaleString()}</span>
+                  {v === 'paths' ? 'Paths' : 'Overview'}
                 </button>
               ))}
+            </div>
+            <div role="group" aria-label="Path level" className="flex flex-wrap gap-2">
+              {(['critical', 'high', 'medium', 'low'] as const).map((lv) => {
+                const pressed = levelFilter === lv || (levelFilter === 'urgent' && (lv === 'critical' || lv === 'high'));
+                return (
+                  <button
+                    key={lv}
+                    type="button"
+                    aria-pressed={pressed}
+                    onClick={() => setLevelFilter((cur) => (cur === lv ? '' : lv))}
+                    className={clsx(
+                      'inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-caption font-semibold transition-colors',
+                      pressed ? 'border-brand bg-brand/15 text-text' : 'border-border bg-base/40 text-muted hover:text-text',
+                    )}
+                  >
+                    <span className={clsx('h-2 w-2 rounded-full', LEVEL_DOT[lv])} aria-hidden />
+                    {lv[0].toUpperCase() + lv.slice(1)}
+                    <span className="tabular-nums text-text">{levelCounts[lv].toLocaleString()}</span>
+                  </button>
+                );
+              })}
             </div>
             <select
               value={confidenceLane}
@@ -722,15 +791,12 @@ export const AttackPaths: React.FC = () => {
                 </option>
               ))}
             </select>
+            {targetFilter ? (
+              <FilterTag label={`Reaches ${TARGET_GROUP_LABEL[targetFilter]}`} onClear={() => setTargetFilter('')} />
+            ) : null}
+            {namespaceFilter ? <FilterTag label={`Starts in ${namespaceFilter}`} onClear={() => setNamespaceFilter('')} /> : null}
             {filtersActive ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setLevelFilter('');
-                  setConfidenceLane('all');
-                }}
-                className="text-caption font-semibold text-muted hover:text-text"
-              >
+              <button type="button" onClick={resetFilters} className="text-caption font-semibold text-muted hover:text-text">
                 Reset filters
               </button>
             ) : null}
@@ -742,28 +808,48 @@ export const AttackPaths: React.FC = () => {
 
           <GraphVisibilityOverlay semanticState={graphVisibility.semanticState} reason={graphVisibility.reason} />
 
-          {visibleScenarios.length === 0 ? (
+          {view === 'overview' ? (
+            <AttackPathOverview
+              scenarios={filteredScenarios}
+              pathById={pathById}
+              onNamespace={(ns) => {
+                setNamespaceFilter(ns);
+                setView('paths');
+              }}
+              onTarget={(g) => {
+                setTargetFilter(g);
+                setView('paths');
+              }}
+              fullGraph={
+                <div className="relative overflow-hidden rounded-lg border border-border bg-base">
+                  <AttackPathGraph
+                    data={fullGraph}
+                    onNodeClick={handleNodeClick}
+                    highlightedStepIndex={null}
+                    semanticMode={attackGraphMode}
+                    graphTrust={graphTrust}
+                    showTrustOverlay={false}
+                    className="h-[min(60dvh,560px)] min-h-[20rem] w-full"
+                  />
+                </div>
+              }
+            />
+          ) : visibleScenarios.length === 0 ? (
             <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-border text-muted">
               <p>{podUidParam && !filtersActive ? 'No attack path starts at this pod.' : 'No attack paths match these filters.'}</p>
               {filtersActive ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setLevelFilter('');
-                    setConfidenceLane('all');
-                  }}
-                >
+                <Button variant="secondary" size="sm" onClick={resetFilters}>
                   Reset filters
                 </Button>
               ) : null}
             </div>
           ) : (
             <>
-              <BreakTheseFirst fixes={sharedFixes} scenarios={visibleScenarios} pathById={pathById} onSelect={selectScenario} />
+              <ChokePoints ranked={rankedFixes} activeFix={activeFix?.label ?? ''} onFilter={setFixFilter} />
 
               <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:items-start">
-                <div className="min-w-0 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto">
+                <div className="flex min-w-0 flex-col gap-2 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-6rem)] xl:overflow-y-auto">
+                  {activeFix ? <FixFilterChip label={activeFix.label} count={visibleScenarios.length} onClear={() => setFixFilter('')} /> : null}
                   <AttackPathList
                     scenarios={visibleScenarios}
                     pathById={pathById}
@@ -774,11 +860,12 @@ export const AttackPaths: React.FC = () => {
                 {currentScenario ? (
                   <div id="attack-path-detail" className="min-w-0 scroll-mt-4">
                     <AttackPathDetail
+                      key={currentScenario.key}
                       scenario={currentScenario}
                       pathById={pathById}
                       clusterId={effectiveClusterId || null}
                       allowedRoutes={allowedRoutes}
-                      canOpenInventory={canOpenInventory}
+                      hrefFor={hrefFor}
                       highlightedStepIndex={highlightedStepIndex}
                       onStepClick={(n) => setHighlightedStepIndex((prev) => (prev === n ? null : n))}
                       addToCase={
@@ -792,24 +879,16 @@ export const AttackPaths: React.FC = () => {
                         />
                       }
                       graph={
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-meta font-semibold uppercase tracking-wider text-muted">{showAllPaths ? 'All paths' : 'This path'}</h3>
-                            <button type="button" onClick={() => setShowAllPaths((v) => !v)} className="text-caption font-semibold text-brand hover:underline">
-                              {showAllPaths ? 'Show this path only' : podUidParam ? 'Show every path from this pod' : 'Show every path'}
-                            </button>
-                          </div>
-                          <div className="relative overflow-hidden rounded-lg border border-border bg-base">
-                            <AttackPathGraph
-                              data={graphForView}
-                              onNodeClick={handleNodeClick}
-                              highlightedStepIndex={highlightedStepIndex}
-                              semanticMode={attackGraphMode}
-                              graphTrust={graphTrust}
-                              showTrustOverlay={false}
-                              className="h-[min(42dvh,380px)] min-h-[18rem] w-full"
-                            />
-                          </div>
+                        <div className="relative overflow-hidden rounded-lg border border-border bg-base">
+                          <AttackPathGraph
+                            data={graphForView}
+                            onNodeClick={handleNodeClick}
+                            highlightedStepIndex={highlightedStepIndex}
+                            semanticMode={attackGraphMode}
+                            graphTrust={graphTrust}
+                            showTrustOverlay={false}
+                            className="h-[min(42dvh,380px)] min-h-[18rem] w-full"
+                          />
                         </div>
                       }
                       extraEvidence={
@@ -838,3 +917,14 @@ const LEVEL_DOT: Record<SeverityLevel, string> = {
   medium: 'bg-yellow-400',
   low: 'bg-slate-400',
 };
+
+function FilterTag({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-brand/40 bg-brand/5 pl-3 pr-1 text-caption text-text">
+      {label}
+      <button type="button" onClick={onClear} aria-label={`Clear: ${label}`} className="rounded p-1 text-muted hover:text-text">
+        <X size={14} aria-hidden />
+      </button>
+    </span>
+  );
+}
