@@ -9,6 +9,7 @@ import (
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/securityaudit"
 )
 
 // LogPlatformSecurityAudit records a high-severity platform audit row (best-effort).
@@ -41,5 +42,38 @@ func LogPlatformSecurityAudit(db *gorm.DB, c *gin.Context, action, resource, res
 		_ = db.Create(&entry).Error
 	} else {
 		_ = db.Omit("UserID").Create(&entry).Error
+	}
+}
+
+// auditOnSuccess appends a security activity event after the handler answers 2xx. It covers
+// writes whose handlers do not record their own event (rule and policy changes, deletes,
+// password changes). idParam names the path parameter holding the object id ("" when the
+// object is new).
+func auditOnSuccess(db *gorm.DB, action, resourceType, idParam string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		if status := c.Writer.Status(); status < 200 || status >= 300 {
+			return
+		}
+		resourceID := ""
+		if idParam != "" {
+			resourceID = c.Param(idParam)
+		}
+		ev := securityaudit.FromRequest(
+			c,
+			authorization.ToStrings(middleware.GrantedPermissions(c)),
+			c.GetString(middleware.CtxJWTSessionID),
+			action,
+			resourceType,
+			resourceID,
+			"success",
+			"medium",
+			"jwt",
+			nil,
+			nil,
+			map[string]any{"method": c.Request.Method, "route": c.FullPath()},
+			nil,
+		)
+		securityaudit.Append(db, &ev)
 	}
 }

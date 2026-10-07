@@ -11,6 +11,8 @@ import {
 } from '../lib/tableChrome';
 import { FindingActions, type FindingAction } from './FindingActions';
 import { podDetailPath } from '../lib/podRoute';
+import { usePermUser } from '../hooks/usePermUser';
+import { can, P } from '../lib/permissions';
 
 /* ─── props ──────────────────────────────────────────────── */
 
@@ -82,6 +84,7 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
   const [capabilities, setCapabilities] = useState<PodCapabilityDetail[]>([]);
   const [references, setReferences] = useState<string[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const canReadAudit = can(usePermUser(), P.systemAuditRead);
   const [context, setContext] = useState<{
     pods: any[]; cluster?: { id?: string; name?: string }; rules: any[];
   } | null>(null);
@@ -104,7 +107,8 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
           api.getInsight(insight.id),
           podUid ? api.getRuntimeSignalsByPod(podUid, { limit: 10, sinceMinutes: sinceMinutesForApi }) : Promise.resolve([]),
           podUid ? api.getPodCapabilities(podUid) : Promise.resolve([]),
-          api.getAuditLogs({ resource: 'insight', resourceId: insight.id, page: 1, pageSize: 20 }),
+          // Audit logs are platform audit (system.audit.read); other roles would get 403.
+          canReadAudit ? api.getAuditLogs({ resource: 'insight', resourceId: insight.id, page: 1, pageSize: 20 }) : Promise.resolve({ logs: [] as AuditLog[] }),
           api.getInsightContext(insight.id),
         ]);
 
@@ -375,6 +379,7 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
                   </div>
                 )}
               </section>
+              {canReadAudit ? (
               <section className="mt-4">
                 <h3 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Audit Trail</h3>
                 {auditLogs.length === 0 ? (
@@ -402,6 +407,7 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
                   </div>
                 )}
               </section>
+              ) : null}
             </>
           )}
 

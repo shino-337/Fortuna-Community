@@ -12,7 +12,7 @@ import (
 const ingestTokenHeader = "X-Fortuna-Ingest-Token"
 
 // RequireIngestToken enforces a shared secret on agent/runtime HTTP ingest routes.
-// Empty tokens fail closed unless FORTUNA_ALLOW_UNAUTHED_INGEST=1 is explicitly set for local development.
+// Empty tokens fail closed unless FORTUNA_ALLOW_UNAUTHED_INGEST=1 and FORTUNA_DEV_MODE=1 are set for local development.
 func RequireIngestToken(expected string) gin.HandlerFunc {
 	expected = strings.TrimSpace(expected)
 	if expected == "" && allowUnauthedIngest() {
@@ -38,9 +38,15 @@ func RequireIngestToken(expected string) gin.HandlerFunc {
 	}
 }
 
+// allowUnauthedIngest is true only when both FORTUNA_ALLOW_UNAUTHED_INGEST and FORTUNA_DEV_MODE
+// are set; config refuses to start with the first and not the second.
 func allowUnauthedIngest() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("FORTUNA_ALLOW_UNAUTHED_INGEST")))
-	return v == "1" || v == "true"
+	return envFlag("FORTUNA_ALLOW_UNAUTHED_INGEST") && envFlag("FORTUNA_DEV_MODE")
+}
+
+func envFlag(name string) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	return v == "1" || v == "true" || v == "yes"
 }
 
 func tokenFromIngestRequest(c *gin.Context, want []byte) bool {

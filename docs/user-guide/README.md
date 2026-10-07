@@ -22,7 +22,7 @@ Roles determine route visibility and actions:
 | Role | Main purpose |
 |------|--------------|
 | Admin | Full platform, security, policy, monitoring, and user administration. |
-| User admin | Fortuna account administration only. No cluster or finding access. |
+| User admin | Fortuna account administration only. No cluster or finding access. Can create and assign only Viewer and User admin accounts; Operator and above, and cluster scope, are set by an Admin. |
 | Operator | Day-to-day investigation, triage, rules, runtime, and risk workflows. |
 | Viewer | Read-oriented security posture and evidence review. |
 

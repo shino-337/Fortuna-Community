@@ -57,7 +57,7 @@ These are read by the database migrations that run at Core startup.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FORTUNA_INGEST_TOKEN` | none | Shared token required on HTTP Agent and runtime ingest routes; without it (and without a credential registry) those routes fail closed. |
-| `FORTUNA_ALLOW_UNAUTHED_INGEST` | none | Local development only (`1` or `true`): accepts HTTP ingest without a token when `FORTUNA_INGEST_TOKEN` is empty. |
+| `FORTUNA_ALLOW_UNAUTHED_INGEST` | none | Local development only (`1` or `true`): accepts HTTP ingest without a token when `FORTUNA_INGEST_TOKEN` is empty. Requires `FORTUNA_DEV_MODE=1`; Core refuses to start otherwise. |
 | `FORTUNA_AGENT_CREDENTIAL_REGISTRY` | none | Path to the scoped Agent credential registry; when set, HTTP ingest requires per-Agent credentials and the shared token is not accepted. See [Agent identity](AGENT_IDENTITY.md). |
 | `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` | none | Path to the registry that binds gRPC client certificates to Agent identities; requires `TLS_ENABLED=true`, otherwise Core does not start. Unset, Core refuses all Agent gRPC writes, so no SBOMs are ingested. |
 | `FORTUNA_SOURCE_HEALTH_REGISTRY` | none | Trust registry used to verify signed runtime source-health reports; without it those reports are rejected. |
