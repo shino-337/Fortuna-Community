@@ -32,6 +32,19 @@
 - A Cluster admin must have at least one named cluster. Creating one, promoting an account to it, or changing its scope to every cluster or to none is refused with 400.
 - Every list endpoint has a default and a maximum `limit` (31 routes were unbounded, including users, resources, investigations, graphs and policy rules), and reports `truncated` when rows are cut. `limit=-1` on rule matches no longer returns every row.
 
+### Agent
+
+- SBOMs describe the image each container is actually running: the agent scans the digest from the pod's `status.containerStatuses[].imageID` instead of re-resolving the spec tag, which may have moved since the pod started. The tag is still shown and still used for tag-derived versions.
+- Multi-arch images are exported from the node's containerd again. The export now asks for the node's platform only; before, it required every platform's layers, failed on nearly every public image and fell back to an unauthenticated registry pull (which fails for private registries). Registry pulls also select the node's platform instead of always linux/amd64.
+- Ubuntu images are detected as Ubuntu: `/etc/os-release` is a symlink there, so detection now also reads `/usr/lib/os-release`. Before, they were reported as Debian `bookworm/sid` and matched against Debian advisories.
+- Debian packages in Google distroless images get `pkg:deb/debian/...` PURLs instead of `pkg:deb/distroless/...`, which matched no advisories.
+- dpkg: removed (`not-installed`, `config-files`) and `half-installed` packages are no longer listed, the `Source` of one package no longer leaks into the next, and indented description lines are no longer read as fields.
+- npm: scoped packages keep their scope (`@babel/core`, not `core`), the project itself is no longer listed as a package named `root`, aliased installs use the real name, and scoped and globally installed modules (`/usr/local/lib/node_modules`) are found.
+- Python: `METADATA` is read up to the end of its headers, so a `Version:` line in the description cannot replace the package version.
+- An image with a layer that could not be read is reported with medium confidence (Core marks it partial) and is not cached, instead of a complete SBOM with packages missing.
+- Pod annotations are no longer sent with SBOMs; Core never stored them, and `last-applied-configuration` holds the full pod spec including environment values.
+- The SBOM signature version is now 5, so SBOMs cached by earlier agents are re-extracted and Core treats the changed output as expected.
+
 ### Core
 
 - Attack paths have a content-based id (`ap_` plus 16 hex characters from the entry pod, every node and every edge) instead of their position in one computation (`p0`, `p1`, …). Positions changed whenever pods or clusters came back in a different order, so a saved link, a case or an alert could open another path. The bundle, the per-pod endpoint, chains and the stored `attack_paths` rows now use the same id; rows stored under the old `<podUid>-path-<n>` id are deleted when the pod's paths are next saved. Attack-path alerts link to `/attack-paths?clusterId=…&path=…`; before, their link never matched a path on the page.

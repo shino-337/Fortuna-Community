@@ -85,24 +85,32 @@ func parseDpkgStatus(content string) []Package {
 	packages := make([]Package, 0)
 	lines := strings.Split(content, "\n")
 	var currentPkg Package
-	var inPackage bool
+	installed := true
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	flush := func() {
+		if currentPkg.Name != "" && installed {
+			packages = append(packages, currentPkg)
+		}
+		// Reset every stanza so fields (e.g. Source) never leak into the next package.
+		currentPkg = Package{}
+		installed = true
+	}
 
-		if line == "" {
-			if inPackage && currentPkg.Name != "" {
-				packages = append(packages, currentPkg)
-				currentPkg = Package{}
-				inPackage = false
-			}
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, " \t\r")
+
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		// Continuation lines (Description, Conffiles) start with whitespace and are never fields.
+		if line[0] == ' ' || line[0] == '\t' {
 			continue
 		}
 
 		if strings.HasPrefix(line, "Package: ") {
-			currentPkg.Name = strings.TrimPrefix(line, "Package: ")
+			currentPkg.Name = strings.TrimSpace(strings.TrimPrefix(line, "Package: "))
 			currentPkg.Type = "deb"
-			inPackage = true
 		} else if strings.HasPrefix(line, "Version: ") {
 			rawVersion := strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
 			currentPkg.Epoch, currentPkg.Version = splitDebianEpochVersion(rawVersion)
@@ -119,20 +127,25 @@ func parseDpkgStatus(content string) []Package {
 				currentPkg.SourcePackage = source
 			}
 		} else if strings.HasPrefix(line, "Architecture: ") {
-			currentPkg.Arch = strings.TrimPrefix(line, "Architecture: ")
+			currentPkg.Arch = strings.TrimSpace(strings.TrimPrefix(line, "Architecture: "))
 		} else if strings.HasPrefix(line, "Status: ") {
-			status := strings.TrimPrefix(line, "Status: ")
-			if !strings.Contains(status, "installed") {
-				inPackage = false
-			}
+			installed = dpkgStatusInstalled(strings.TrimPrefix(line, "Status: "))
 		}
 	}
-
-	if inPackage && currentPkg.Name != "" {
-		packages = append(packages, currentPkg)
-	}
+	flush()
 
 	return packages
+}
+
+// dpkgStatusInstalled reports whether a dpkg "Status: want flag state" line means the package
+// is on disk. Only the state word counts: "purge ok not-installed" and "install ok
+// half-installed" both contain the substring "installed" but are not installed packages.
+func dpkgStatusInstalled(status string) bool {
+	fields := strings.Fields(status)
+	if len(fields) == 0 {
+		return false
+	}
+	return fields[len(fields)-1] == "installed"
 }
 
 // parseDpkgStatusDetails parses only fields needed for transitive dependency expansion.
@@ -165,8 +178,7 @@ func parseDpkgStatusDetails(content string) []DebianPackageInfo {
 		case strings.HasPrefix(line, "Pre-Depends: "):
 			cur.PreDepends = parseDebianDependencies(strings.TrimSpace(strings.TrimPrefix(line, "Pre-Depends: ")))
 		case strings.HasPrefix(line, "Status: "):
-			status := strings.TrimSpace(strings.TrimPrefix(line, "Status: "))
-			if !strings.Contains(status, "installed") {
+			if !dpkgStatusInstalled(strings.TrimPrefix(line, "Status: ")) {
 				inPackage = false
 			}
 		}

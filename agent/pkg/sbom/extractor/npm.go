@@ -15,7 +15,8 @@ func NewNpmParser() *NpmParser {
 }
 
 // commonNodeRoots are typical WORKDIRs in Node images (npm parser checks these)
-var commonNodeRoots = []string{"", "/app", "/usr/src/app", "/home/node/app", "/opt/app"}
+// and /usr/local/lib holds globally installed modules (npm itself in the official node images).
+var commonNodeRoots = []string{"", "/app", "/usr/src/app", "/home/node/app", "/opt/app", "/usr/local/lib"}
 
 // Parse parses npm packages from package-lock.json and node_modules/*/package.json
 func (p *NpmParser) Parse(fs *Filesystem) ([]Package, error) {
@@ -53,7 +54,9 @@ func (p *NpmParser) Parse(fs *Filesystem) ([]Package, error) {
 			}
 			pattern = r + "/node_modules/*/package.json"
 		}
-		moduleDirs := fs.Glob(pattern)
+		// Scoped packages live one level deeper (node_modules/@scope/name/package.json).
+		scoped := strings.TrimSuffix(pattern, "*/package.json") + "@*/*/package.json"
+		moduleDirs := append(fs.Glob(pattern), fs.Glob(scoped)...)
 		for _, path := range moduleDirs {
 			content, err := fs.ReadFile(path)
 			if err != nil {
@@ -121,21 +124,24 @@ func (p *NpmParser) parsePackageLock(content []byte) ([]Package, error) {
 	// v2+ format: "packages": { "": { "version": "..." }, "node_modules/foo": { "version": "..." } }
 	var v2 struct {
 		Packages map[string]struct {
+			Name    string `json:"name"`
 			Version string `json:"version"`
+			Link    bool   `json:"link"`
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(content, &v2); err == nil && len(v2.Packages) > 0 {
 		for path, pkg := range v2.Packages {
-			if pkg.Version == "" {
+			// "" is the project itself, not a dependency; links point at workspace folders
+			// whose own entry carries the version.
+			if pkg.Version == "" || path == "" || pkg.Link {
 				continue
 			}
-			parts := strings.Split(path, "/")
-			name := parts[len(parts)-1]
-			if name == "" && len(parts) > 1 {
-				name = parts[len(parts)-2]
+			name := npmNameFromLockPath(path)
+			if pkg.Name != "" {
+				name = pkg.Name // aliased installs ("foo": "npm:bar@1") record the real name
 			}
 			if name == "" {
-				name = "root"
+				continue
 			}
 			packages = append(packages, Package{Name: name, Version: pkg.Version, Type: "npm"})
 		}
@@ -162,6 +168,18 @@ func (p *NpmParser) parsePackageLock(content []byte) ([]Package, error) {
 		packages = append(packages, Package{Name: name, Version: dep.Version, Type: "npm"})
 	}
 	return packages, nil
+}
+
+// npmNameFromLockPath returns the package name for a lockfile v2+ "packages" key: the part
+// after the last "node_modules/", which keeps the scope ("node_modules/a/node_modules/@babel/core"
+// is "@babel/core"). Keys outside node_modules are workspace folders and return "".
+func npmNameFromLockPath(path string) string {
+	const marker = "node_modules/"
+	idx := strings.LastIndex(path, marker)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSuffix(path[idx+len(marker):], "/")
 }
 
 // parsePackageJson parses package.json
