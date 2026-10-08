@@ -141,7 +141,7 @@ func (r *CVECatalogRematcher) queueRematch(ctx context.Context, generation uint,
 	if err := r.DB.WithContext(ctx).Raw(`
 SELECT s.id, s.cluster_id, s.pod_uid, s.pod_name, s.namespace, s.container_name, s.image_name, s.image_tag, s.image_digest
 FROM sboms s
-INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 WHERE s.deleted_at IS NULL
   AND lower(coalesce(s.status, '')) IN ('complete', 'partial', 'finalized')
 ORDER BY s.id`).Scan(&rows).Error; err != nil {
