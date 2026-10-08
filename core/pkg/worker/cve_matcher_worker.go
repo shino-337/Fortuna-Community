@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -368,7 +369,7 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 				seenCVE := make(map[string]struct{})
 				ids := make([]string, 0, epssLimit)
 				for _, wk := range works {
-					id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
+					id := canonicalCVEID(wk.m.CVEID)
 					if id == "" {
 						continue
 					}
@@ -390,14 +391,14 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 				insight := buildVulnInsightFromEvent(ev, sbomStatus, wk.component, wk.m)
 				patch := map[string]interface{}{}
 				if epss.Enabled() && epssLimit > 0 {
-					id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
+					id := canonicalCVEID(wk.m.CVEID)
 					if r, ok := epssResults[id]; ok {
 						patch["epss"] = r.EPSS
 						patch["epss_percentile"] = r.Percentile
 						patch["epss_source"] = "first.org"
 					}
 				}
-				if kev.Enabled() && kev.Contains(wk.m.CVEID) {
+				if kev.Enabled() && kev.Contains(canonicalCVEID(wk.m.CVEID)) {
 					patch["cisa_kev"] = true
 				}
 				if len(patch) > 0 {
@@ -1114,4 +1115,18 @@ func (w *CVEMatcherWorker) emitRiskConfidenceDistributionMetrics(sbomStatus stri
 				Set(ratio)
 		}
 	}
+}
+
+// distroCVEIDRE matches OSV distro advisory IDs that wrap one CVE: DEBIAN-CVE-2024-1234,
+// UBUNTU-CVE-2024-1234, ALPINE-CVE-2024-1234.
+var distroCVEIDRE = regexp.MustCompile(`^[A-Z]+-(CVE-\d{4}-\d{4,})$`)
+
+// canonicalCVEID returns the CVE ID that KEV and EPSS are keyed by: the advisory ID itself, or
+// the CVE a single-CVE distro advisory wraps.
+func canonicalCVEID(id string) string {
+	id = strings.TrimSpace(strings.ToUpper(id))
+	if m := distroCVEIDRE.FindStringSubmatch(id); m != nil {
+		return m[1]
+	}
+	return id
 }

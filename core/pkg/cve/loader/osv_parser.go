@@ -317,8 +317,9 @@ func uniqueVersions(versions []string, max int) []string {
 // OSVEcosystemRelease returns the distro release an OSV ecosystem string is scoped to, normalized
 // the way SBOM components report it: "Debian:12" → "12", "Alpine:v3.20" → "3.20",
 // "Ubuntu:22.04:LTS" and "Ubuntu:Pro:22.04:LTS" → "22.04", "Rocky Linux:8" → "8",
-// "AlmaLinux:9" → "9". Ecosystems without a release, or with a format we do not parse
-// (Red Hat CPE-style suffixes), return "".
+// "AlmaLinux:9" → "9", "Red Hat:enterprise_linux:9::appstream", "Red Hat:rhel_eus:9.4::baseos" and
+// "Red Hat:openshift:4.14::el9" → "9". Ecosystems without a release, or with a format we do not
+// parse (Red Hat products not tied to a RHEL major), return "".
 func OSVEcosystemRelease(ecosystem string) string {
 	e := strings.TrimSpace(ecosystem)
 	name, rest, ok := strings.Cut(e, ":")
@@ -330,6 +331,8 @@ func OSVEcosystemRelease(ecosystem string) string {
 		return NormalizeDistroRelease(strings.ToLower(name), rest)
 	case "alpine":
 		return NormalizeDistroRelease("alpine", rest)
+	case "red hat":
+		return redHatRelease(rest)
 	case "ubuntu":
 		for _, part := range strings.Split(rest, ":") {
 			part = strings.TrimSpace(part)
@@ -341,8 +344,42 @@ func OSVEcosystemRelease(ecosystem string) string {
 	return ""
 }
 
+// redHatRelease returns the RHEL major of a Red Hat CPE-style stream "product:version::variant":
+// the "elN" variant of layered products, else the version major of RHEL streams
+// (enterprise_linux, enterprise_linux_eus, rhel_eus, rhel_aus, rhel_tus, rhel_e4s).
+func redHatRelease(stream string) string {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(stream)), ":")
+	if len(parts) < 2 {
+		return ""
+	}
+	if v := parts[len(parts)-1]; strings.HasPrefix(v, "el") && isDigits(v[2:]) {
+		return v[2:]
+	}
+	product := parts[0]
+	if product != "enterprise_linux" && product != "enterprise_linux_eus" && !strings.HasPrefix(product, "rhel_") {
+		return ""
+	}
+	major, _, _ := strings.Cut(parts[1], ".")
+	if !isDigits(major) {
+		return ""
+	}
+	return major
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // NormalizeDistroRelease reduces a distro version to the granularity advisories are published
-// at: the major version for Debian, Rocky and Alma ("12.5" → "12"), major.minor for Alpine and
+// at: the major version for Debian, Rocky, Alma and RHEL ("12.5" → "12"), major.minor for Alpine and
 // Ubuntu ("v3.20.3" → "3.20", "22.04" → "22.04"). Unknown distros return the trimmed version.
 func NormalizeDistroRelease(distro, version string) string {
 	v := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(version)), "v")
@@ -351,7 +388,7 @@ func NormalizeDistroRelease(distro, version string) string {
 	}
 	parts := strings.Split(v, ".")
 	switch strings.ToLower(strings.TrimSpace(distro)) {
-	case "debian", "rocky", "rocky linux", "alma", "almalinux":
+	case "debian", "rocky", "rocky linux", "alma", "almalinux", "redhat", "rhel":
 		return parts[0]
 	case "alpine", "ubuntu":
 		if len(parts) >= 2 {
@@ -522,6 +559,10 @@ func normalizeEcosystem(ecosystem string) string {
 	}
 	if strings.HasPrefix(ecosystem, "almalinux") {
 		return "alma"
+	}
+	// "Red Hat:enterprise_linux:9::appstream" and other Red Hat product streams.
+	if ecosystem == "red hat" || strings.HasPrefix(ecosystem, "red hat:") {
+		return "redhat"
 	}
 	// Map variations to standard names
 	switch ecosystem {
