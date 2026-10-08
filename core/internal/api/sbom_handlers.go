@@ -85,6 +85,8 @@ type VulnerabilityDTO struct {
 	Allowed         bool    `json:"allowed,omitempty"`         // allowed by policy
 	Source          string  `json:"source,omitempty"`          // fortuna-core-cve-matcher (and variants)
 	Confidence      string  `json:"confidence,omitempty"`      // high (constrained OSV) | lower when matcher flags uncertainty
+	// Advisories lists the advisories (GHSA, DSA, RHSA, …) that reported this vulnerability.
+	Advisories []string `json:"advisories,omitempty"`
 }
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
@@ -410,6 +412,8 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		catalogDesc := catalogDescriptions(db, matches)
+
 		byCompID := make(map[uint]models.MalwareMatch)
 		byNameVer := make(map[string]models.MalwareMatch)
 		if db.Migrator().HasTable("malware_matches") {
@@ -499,6 +503,9 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					exploitKnown = match.CVE.ExploitAvailable
 					exploitMaturity = match.CVE.ExploitMaturity
 				}
+				if desc == "" {
+					desc = catalogDesc.of(match)
+				}
 				source := match.MatchedBy
 				confidence := "high"
 				if strings.Contains(strings.ToLower(match.MatchedBy), "low-confidence") {
@@ -516,6 +523,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					Allowed:         false,
 					Source:          source,
 					Confidence:      confidence,
+					Advisories:      []string(match.AdvisoryIDs),
 				})
 			}
 			compDTO.MaxSeverity = maxSev
@@ -672,4 +680,49 @@ func registryMatchesPolicy(registry, rawPolicy string) bool {
 		}
 	}
 	return false
+}
+
+// matchDescriptions holds advisory texts from the versioned catalog by vulnerability or advisory ID.
+type matchDescriptions map[string]string
+
+// of returns the text of the finding's own ID, else of the first advisory that has one.
+func (d matchDescriptions) of(m models.CVEMatch) string {
+	if v := d[m.CVEID]; v != "" {
+		return v
+	}
+	for _, id := range m.AdvisoryIDs {
+		if v := d[id]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// catalogDescriptions loads descriptions for findings the legacy cves table does not describe
+// (findings are keyed by CVE since resolver v1.7; that table holds advisory IDs).
+func catalogDescriptions(db *gorm.DB, matches []models.CVEMatch) matchDescriptions {
+	out := matchDescriptions{}
+	var ids []string
+	for _, m := range matches {
+		if m.CVE.ID != 0 {
+			continue
+		}
+		ids = append(ids, m.CVEID)
+		ids = append(ids, m.AdvisoryIDs...)
+	}
+	if len(ids) == 0 || !db.Migrator().HasTable("vuln_advisories") {
+		return out
+	}
+	var rows []struct {
+		AdvisoryID string
+		Text       string
+	}
+	if err := db.Raw(`SELECT advisory_id, COALESCE(NULLIF(details, ''), summary) AS text
+		FROM vuln_advisories WHERE valid_to_gen IS NULL AND advisory_id IN ?`, ids).Scan(&rows).Error; err != nil {
+		return out
+	}
+	for _, r := range rows {
+		out[r.AdvisoryID] = r.Text
+	}
+	return out
 }

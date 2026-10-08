@@ -227,18 +227,16 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	}
 	// Match CVEs using postgres-backed manager (cves + package_vulnerabilities)
 	startMatch := time.Now()
-	matches, err := w.matcher.MatchSBOM(ctx, &sbomModel, componentsOverride)
+	matches, complete, err := w.matcher.MatchSBOMComplete(ctx, &sbomModel, componentsOverride)
 	if err != nil {
 		incCVEMatcherRun("error")
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
 	}
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 
-	if len(matches) > 0 {
-		if err := w.persistMatches(ctx, matches); err != nil {
-			incCVEMatcherRun("error")
-			return err
-		}
+	if err := w.persistMatches(ctx, sbomModel.ID, matches, complete); err != nil {
+		incCVEMatcherRun("error")
+		return err
 	}
 
 	// Malware matching: always run even when CVE matches=0 (demo / supply-chain hits may have no OSV row).
@@ -499,33 +497,87 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	return nil
 }
 
-func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models.CVEMatch) error {
+// persistMatches stores the findings of one match run. A finding already stored for the SBOM is
+// updated (a new catalog can change its severity, fix or advisories). When the run is complete
+// the stored set is replaced: findings the catalog no longer reports are removed.
+func (w *CVEMatcherWorker) persistMatches(ctx context.Context, sbomID uint, matches []*models.CVEMatch, complete bool) error {
 	now := time.Now()
+	// The table keeps one row per (package name, CVE); two versions of a package share it.
+	byKey := make(map[string]*models.CVEMatch, len(matches))
+	unique := make([]*models.CVEMatch, 0, len(matches))
 	for _, m := range matches {
+		key := m.PackageName + "\x1f" + m.CVEID
+		if first := byKey[key]; first != nil {
+			for _, id := range m.AdvisoryIDs {
+				if !containsString(first.AdvisoryIDs, id) {
+					first.AdvisoryIDs = append(first.AdvisoryIDs, id)
+				}
+			}
+			continue
+		}
 		if m.MatchedAt.IsZero() {
 			m.MatchedAt = now
 		}
 		if m.MatchedBy == "" {
 			m.MatchedBy = "fortuna-core-cve-matcher"
 		}
+		byKey[key] = m
+		unique = append(unique, m)
 	}
+	matches = unique
+	return w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Upsert on the unique index (sbom_id, package_name, cve_id).
+		const batchSize = 500
+		for i := 0; i < len(matches); i += batchSize {
+			end := i + batchSize
+			if end > len(matches) {
+				end = len(matches)
+			}
+			batch := matches[i:end]
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "sbom_id"}, {Name: "package_name"}, {Name: "cve_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{
+					"package_version", "p_url", "severity", "cvss", "fixed_version", "matched_by",
+					"advisory_ids", "severity_source", "updated_at", "deleted_at",
+				}),
+			}).Create(&batch).Error; err != nil {
+				return fmt.Errorf("persist cve_matches batch: %w", err)
+			}
+		}
+		if !complete {
+			return nil
+		}
+		var stored []struct {
+			ID          uint
+			PackageName string
+			CVEID       string
+		}
+		if err := tx.Model(&models.CVEMatch{}).Unscoped().Select("id, package_name, cve_id").
+			Where("sbom_id = ?", sbomID).Scan(&stored).Error; err != nil {
+			return fmt.Errorf("list stored cve_matches: %w", err)
+		}
+		var stale []uint
+		for _, row := range stored {
+			if byKey[row.PackageName+"\x1f"+row.CVEID] == nil {
+				stale = append(stale, row.ID)
+			}
+		}
+		if len(stale) > 0 {
+			if err := tx.Unscoped().Where("id IN ?", stale).Delete(&models.CVEMatch{}).Error; err != nil {
+				return fmt.Errorf("remove stale cve_matches: %w", err)
+			}
+		}
+		return nil
+	})
+}
 
-	// Batch insert with ON CONFLICT DO NOTHING (requires unique index: (sbom_id, package_name, cve_id))
-	const batchSize = 500
-	for i := 0; i < len(matches); i += batchSize {
-		end := i + batchSize
-		if end > len(matches) {
-			end = len(matches)
-		}
-		batch := matches[i:end]
-		if err := w.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "package_name"}, {Name: "cve_id"}},
-			DoNothing: true,
-		}).Create(&batch).Error; err != nil {
-			return fmt.Errorf("persist cve_matches batch: %w", err)
+func containsString(values []string, v string) bool {
+	for _, have := range values {
+		if have == v {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, matches []*models.MalwareMatch) error {

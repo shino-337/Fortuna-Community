@@ -7,4 +7,7 @@ package matcher
 // decoding; maven/npm/gem/composer/cargo queried in their own ecosystems.
 // v1.5: distro advisory ranges scoped to the component's release; open (unfixed) ranges and
 // explicit OSV versions matched; withdrawn advisories dropped.
-const ResolverVersion = "v1.6"
+// v1.6: AlmaLinux, Rocky and Red Hat advisories matched.
+// v1.7: matched from the versioned catalog; one finding per (component, CVE) listing every
+// matching advisory, rated vendor first, then CVSS.
+const ResolverVersion = "v1.7"

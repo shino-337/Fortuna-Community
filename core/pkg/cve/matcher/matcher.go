@@ -68,6 +68,31 @@ func (m *Matcher) MatchSBOM(
 	sbom *models.SBOM,
 	componentsOverride []*models.SBOMComponent,
 ) ([]*models.CVEMatch, error) {
+	matches, _, err := m.MatchSBOMComplete(ctx, sbom, componentsOverride)
+	return matches, err
+}
+
+// MatchSBOMComplete is MatchSBOM that also reports whether every catalog query succeeded, so the
+// caller knows the matches are the SBOM's whole finding set and may replace the stored one.
+func (m *Matcher) MatchSBOMComplete(
+	ctx context.Context,
+	sbom *models.SBOM,
+	componentsOverride []*models.SBOMComponent,
+) (matches []*models.CVEMatch, complete bool, err error) {
+	complete = true
+	matches, err = m.matchSBOM(ctx, sbom, componentsOverride, &complete)
+	if err != nil {
+		complete = false
+	}
+	return matches, complete, err
+}
+
+func (m *Matcher) matchSBOM(
+	ctx context.Context,
+	sbom *models.SBOM,
+	componentsOverride []*models.SBOMComponent,
+	complete *bool,
+) ([]*models.CVEMatch, error) {
 	// SBOM lifecycle: only match finalized SBOMs to avoid races with mutable components.
 	status := strings.ToLower(strings.TrimSpace(sbom.Status))
 	// SBOM status model (C0): pending|complete|partial|failed(+ legacy finalized).
@@ -78,9 +103,11 @@ func (m *Matcher) MatchSBOM(
 		// proceed
 	case "pending", "failed":
 		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q", sbom.ID, sbom.Status)
+		*complete = false
 		return nil, nil
 	default:
 		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q (unknown/unsafe)", sbom.ID, sbom.Status)
+		*complete = false
 		return nil, nil
 	}
 
@@ -226,6 +253,7 @@ func (m *Matcher) MatchSBOM(
 		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, "go", allResolved)
 		if err != nil {
 			m.logger.Printf("⚠️  Failed to bulk query Go CVEs: %v", err)
+			*complete = false
 		} else {
 			for _, resolvedName := range allResolved {
 				cves := packageCVEs[resolvedName]
@@ -235,7 +263,7 @@ func (m *Matcher) MatchSBOM(
 				}
 				recordMatcherVulnerabilityCandidates("go", len(cves))
 			}
-			seenMatch := make(map[string]map[string]bool) // componentDedupKey -> CVEID -> true
+			seenMatch := make(map[string]map[string]*models.CVEMatch) // componentDedupKey -> CVEID -> finding
 			for resolvedName, cves := range packageCVEs {
 				// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
 				sort.SliceStable(cves, func(i, j int) bool {
@@ -255,12 +283,9 @@ func (m *Matcher) MatchSBOM(
 					purl := pair.purl
 					dedupKey := comp.PURL + "|" + comp.ComponentVersion + "|" + comp.ComponentName
 					if seenMatch[dedupKey] == nil {
-						seenMatch[dedupKey] = make(map[string]bool)
+						seenMatch[dedupKey] = make(map[string]*models.CVEMatch)
 					}
 					for _, cveData := range cves {
-						if seenMatch[dedupKey][cveData.ID] {
-							continue
-						}
 						if strings.TrimSpace(cveData.Constraint) == "" {
 							recordMatcherVulnerabilitySkip("no_constraint", "go")
 							continue
@@ -275,9 +300,12 @@ func (m *Matcher) MatchSBOM(
 							recordMatcherVulnerabilitySkip("not_vulnerable", "go")
 							continue
 						}
+						if existing := seenMatch[dedupKey][cveData.ID]; existing != nil {
+							mergeMatch(existing, cveData)
+							continue
+						}
 						recordMatcherVulnerabilityVersionMatch("go")
-						seenMatch[dedupKey][cveData.ID] = true
-						matches = append(matches, &models.CVEMatch{
+						match := &models.CVEMatch{
 							ClusterID:           sbom.ClusterID,
 							SBOMID:              sbom.ID,
 							PodUID:              sbom.PodUID,
@@ -293,7 +321,10 @@ func (m *Matcher) MatchSBOM(
 							MatchedAt:           comp.CreatedAt,
 							HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
 							ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
-						})
+						}
+						rateMatch(match, cveData)
+						seenMatch[dedupKey][cveData.ID] = match
+						matches = append(matches, match)
 					}
 				}
 			}
@@ -329,6 +360,7 @@ func (m *Matcher) MatchSBOM(
 		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, ecosystem, packageNames)
 		if err != nil {
 			m.logger.Printf("⚠️  Failed to bulk query CVEs for ecosystem %s: %v", ecosystem, err)
+			*complete = false
 			continue
 		}
 
@@ -377,22 +409,20 @@ func (m *Matcher) MatchSBOM(
 					continue
 				}
 				release := componentDistroRelease(ecosystem, purl, sbom)
-				seenCVE := make(map[string]bool)
+				findings := make(map[string]*models.CVEMatch) // CVEID -> finding for this component
 				// Check version constraints for each CVE
 				for _, cveData := range cves {
 					if !cveAppliesToRelease(ecosystem, cveData.Release, release) {
 						recordMatcherVulnerabilitySkip("release_mismatch", ecosystem)
 						continue
 					}
-					if seenCVE[cveData.ID] {
-						continue
-					}
+					existing := findings[cveData.ID]
 					if !isCVEApplicableToPackageArch(cveData, purl) {
 						recordMatcherVulnerabilitySkip("arch_mismatch", ecosystem)
 						continue
 					}
 					compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
-					if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+					if existing == nil && matchCountByComponent[compKey] >= maxMatchesPerComponent {
 						recordMatcherVulnerabilitySkip("cap_reached", ecosystem)
 						continue
 					}
@@ -425,6 +455,10 @@ func (m *Matcher) MatchSBOM(
 						recordMatcherVulnerabilitySkip("not_vulnerable", ecosystem)
 						continue // Not vulnerable
 					}
+					if existing != nil {
+						mergeMatch(existing, cveData)
+						continue
+					}
 					recordMatcherVulnerabilityVersionMatch(ecosystem)
 
 					// 4. Create match
@@ -448,10 +482,11 @@ func (m *Matcher) MatchSBOM(
 					if unknownVersion {
 						match.MatchedBy = "fortuna-core-cve-matcher-low-confidence"
 					}
+					rateMatch(match, cveData)
 
 					matches = append(matches, match)
 					matchCountByComponent[compKey]++
-					seenCVE[cveData.ID] = true
+					findings[cveData.ID] = match
 				}
 			}
 		}
@@ -460,7 +495,9 @@ func (m *Matcher) MatchSBOM(
 	m.logger.Printf("✅ Found %d CVE matches for SBOM ID %d", len(matches), sbom.ID)
 
 	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and OSV mirror stdlib entries.
-	m.matchGoStdlib(ctx, sbom, &matches)
+	if !m.matchGoStdlib(ctx, sbom, &matches) {
+		*complete = false
+	}
 
 	// Deterministic output contract: sorted by package identity, then version, then CVE ID.
 	sort.Slice(matches, func(i, j int) bool {

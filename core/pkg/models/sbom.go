@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -163,6 +164,11 @@ type CVEMatch struct {
 	CVSS         float32 `gorm:"type:decimal(4,1)" json:"cvss"` // Changed from *float64
 	FixedVersion string  `gorm:"type:varchar(255)" json:"fixedVersion"`
 	MatchedBy    string  `gorm:"type:varchar(255)" json:"matchedBy"` // Version range that matched
+
+	// AdvisoryIDs lists the advisories (GHSA, DSA, RHSA, …) whose ranges matched this finding;
+	// CVEID is the canonical vulnerability they describe. SeveritySource says where Severity came from.
+	AdvisoryIDs    pq.StringArray `gorm:"type:text[]" json:"advisoryIds,omitempty"`
+	SeveritySource string         `gorm:"type:varchar(30)" json:"severitySource,omitempty"`
 
 	// HasConstraint/ConstraintSatisfied are computed during matching and used for
 	// post-match confidence propagation (Phase 2). They are not persisted.
