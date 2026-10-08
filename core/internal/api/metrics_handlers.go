@@ -420,12 +420,9 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 			countWhere(&cveProcessed, &models.CVEMatch{})
 		}
 		var cveRows, packageRows, activeCVEGeneration int64
-		if db.Migrator().HasTable("cves") {
-			captureErr(db.Table("cves").Count(&cveRows).Error)
-		}
-		if db.Migrator().HasTable("package_vulnerabilities") {
-			captureErr(db.Table("package_vulnerabilities").Count(&packageRows).Error)
-		}
+		catalog, err := countVulnCatalog(db)
+		captureErr(err)
+		cveRows, packageRows = catalog.CVEs, catalog.Ranges
 		if db.Migrator().HasTable("catalog_generations") {
 			var generationID sql.NullInt64
 			captureErr(db.Table("catalog_generations").

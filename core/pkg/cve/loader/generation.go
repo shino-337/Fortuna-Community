@@ -10,11 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// packageVulnColumns are copied when an incremental load carries rows into a new generation.
-const packageVulnColumns = `cve_id, package_name, package_type, ecosystem, ecosystem_release, affected_range,
-	version_start_including, version_start_excluding, version_end_including, version_end_excluding,
-	fixed_version, fixed_in_versions, vendor, product`
-
 // ActiveCVEGeneration returns the generation the matcher reads (latest activated "active" cve
 // generation), or nil when there is none.
 func ActiveCVEGeneration(ctx context.Context, db *gorm.DB) (*models.CatalogGeneration, error) {
@@ -31,69 +26,6 @@ func ActiveCVEGeneration(ctx context.Context, db *gorm.DB) (*models.CatalogGener
 		return nil, nil
 	}
 	return &gen, nil
-}
-
-// CarryForwardPackageVulns copies the package_vulnerabilities rows of generation from into
-// generation to, except rows of the advisories in excludedIDs (reloaded or removed in this run).
-//
-// The matcher reads only the active generation, so an incremental load that holds just the
-// changed advisories must carry the unchanged ones forward before it is activated; otherwise
-// activating it hides every other advisory.
-func CarryForwardPackageVulns(ctx context.Context, db *gorm.DB, from, to uint, excludedIDs []string) (int64, error) {
-	if from == 0 || to == 0 || from == to {
-		return 0, nil
-	}
-	var copied int64
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS fortuna_excluded_advisories (id VARCHAR(255) PRIMARY KEY)`).Error; err != nil {
-			return fmt.Errorf("create excluded advisories table: %w", err)
-		}
-		if err := tx.Exec(`DELETE FROM fortuna_excluded_advisories`).Error; err != nil {
-			return err
-		}
-		const chunk = 1000
-		seen := make(map[string]bool, len(excludedIDs))
-		batch := make([]string, 0, chunk)
-		flush := func() error {
-			if len(batch) == 0 {
-				return nil
-			}
-			placeholders := strings.TrimSuffix(strings.Repeat("(?),", len(batch)), ",")
-			args := make([]interface{}, len(batch))
-			for i, id := range batch {
-				args[i] = id
-			}
-			batch = batch[:0]
-			return tx.Exec(`INSERT INTO fortuna_excluded_advisories (id) VALUES `+placeholders, args...).Error
-		}
-		for _, id := range excludedIDs {
-			id = strings.TrimSpace(id)
-			if id == "" || seen[id] {
-				continue
-			}
-			seen[id] = true
-			batch = append(batch, id)
-			if len(batch) == chunk {
-				if err := flush(); err != nil {
-					return fmt.Errorf("record excluded advisories: %w", err)
-				}
-			}
-		}
-		if err := flush(); err != nil {
-			return fmt.Errorf("record excluded advisories: %w", err)
-		}
-		res := tx.Exec(`INSERT INTO package_vulnerabilities (`+packageVulnColumns+`, catalog_generation_id, created_at, updated_at)
-SELECT `+packageVulnColumns+`, ?, created_at, CURRENT_TIMESTAMP
-FROM package_vulnerabilities
-WHERE catalog_generation_id = ? AND deleted_at IS NULL
-  AND cve_id NOT IN (SELECT id FROM fortuna_excluded_advisories)`, to, from)
-		if res.Error != nil {
-			return fmt.Errorf("carry forward package vulnerabilities: %w", res.Error)
-		}
-		copied = res.RowsAffected
-		return tx.Exec(`DROP TABLE fortuna_excluded_advisories`).Error
-	})
-	return copied, err
 }
 
 // PruneCVEGenerations keeps the newest keep active cve generations and retires the older ones,
@@ -171,13 +103,4 @@ func (t *IncrementalTracker) RemovedCVEIDs(ctx context.Context) ([]string, error
 		out = append(out, m.CVEID)
 	}
 	return out, nil
-}
-
-// CVEIDsOfFiles returns the advisory IDs of source files (<ID>.json).
-func CVEIDsOfFiles(files []string) []string {
-	out := make([]string, 0, len(files))
-	for _, f := range files {
-		out = append(out, extractCVEIDFromPath(f))
-	}
-	return out
 }
