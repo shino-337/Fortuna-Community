@@ -290,6 +290,7 @@ POSTGRES_REQUIRED = {
     "./pkg/graph": ["TestAGEScopedTraversalPostgres"],
     "./pkg/cve/loader": ["TestVersionedCatalogPostgres", "TestRemapFindingsToCanonicalPostgres"],
     "./pkg/cve/matcher": ["TestVersionedCatalogMatchPostgres"],
+    "./pkg/cve/enrich": ["TestEnrichPostgres"],
     "./internal/api/risk": ["TestRiskTrendsAggregationPostgres"],
 }
 

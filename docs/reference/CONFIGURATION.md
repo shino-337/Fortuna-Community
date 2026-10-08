@@ -177,11 +177,13 @@ The `fortuna-vulndb-update` CronJob (Helm `core.vulnDBUpdate`, on by default) ru
 | `core.vulnDBUpdate.enabled` | `true` | Installs the CronJob and its PVC. |
 | `core.vulnDBUpdate.schedule` | `23 */6 * * *` | Cron schedule. |
 | `core.vulnDBUpdate.osvBaseURL` | `https://osv-vulnerabilities.storage.googleapis.com` | OSV export location; point it at an internal mirror with the same layout for air-gapped clusters. |
+| `core.vulnDBUpdate.kevURL` | CISA KEV JSON feed | Known Exploited Vulnerabilities catalog stored per CVE after each run; `""` skips it. |
+| `core.vulnDBUpdate.epssURL` | `https://epss.empiricalsecurity.com/epss_scores-current.csv.gz` | Daily EPSS scores for every CVE, stored the same way; `""` skips it. |
 | `core.vulnDBUpdate.ecosystems` | Debian, Ubuntu, Alpine, Rocky Linux, AlmaLinux, Red Hat, Wolfi, Chainguard, Go, npm, PyPI, Maven, RubyGems, crates.io, NuGet, Packagist | OSV ecosystems downloaded. |
 | `core.vulnDBUpdate.keepGenerations` | `2` | Active catalog generations kept; older rows are deleted. |
 | `core.vulnDBUpdate.persistence.enabled` | `true` | Keeps downloads between runs on a PVC (`size`, default `24Gi`, and `storageClassName`); without it every run downloads and reloads everything. The default ecosystems unpack to about 12 GiB, most of it Ubuntu, Chainguard and Wolfi; drop the ones your images do not use to shrink it. |
 
-An ecosystem whose download fails keeps its previous advisories and fails the job, so the failure shows in the CronJob history; an export that lost more than half its advisories is rejected the same way. The job needs HTTPS egress to `osvBaseURL` and the database, and no Kubernetes API access.
+An ecosystem whose download fails keeps its previous advisories and fails the job, so the failure shows in the CronJob history; an export that lost more than half its advisories is rejected the same way. After the catalog, the job downloads the KEV catalog and the EPSS scores (skipped when the ETag is unchanged) into the `vulnerabilities` table; a failed feed is logged and recorded in `vuln_feed_state` without failing the job. Once a feed has loaded, findings take KEV and EPSS from there and Core no longer calls the CISA feed or the FIRST API for them (`FORTUNA_KEV_*` and `FORTUNA_EPSS_*` only apply until then). The job needs HTTPS egress to `osvBaseURL`, `kevURL`, `epssURL` and the database, and no Kubernetes API access.
 
 ### Scheduled jobs and retention
 

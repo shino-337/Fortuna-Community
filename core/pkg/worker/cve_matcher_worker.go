@@ -362,12 +362,20 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 				works = append(works, matchWork{m: m, component: component})
 			}
 
+			// KEV and EPSS come from the vulnerabilities table once the update job has loaded
+			// them; before that, from the optional live CISA and FIRST lookups.
+			workIDs := make([]string, 0, len(works))
+			for _, wk := range works {
+				workIDs = append(workIDs, canonicalCVEID(wk.m.CVEID))
+			}
+			stored := loadExploitData(ctx, w.db, workIDs)
+
 			epssResults := make(map[string]epss.EpssResult)
-			if epss.Enabled() && epssLimit > 0 && len(works) > 0 {
+			useEPSSAPI := !stored.epssLoaded && epss.Enabled() && epssLimit > 0
+			if useEPSSAPI && len(works) > 0 {
 				seenCVE := make(map[string]struct{})
 				ids := make([]string, 0, epssLimit)
-				for _, wk := range works {
-					id := canonicalCVEID(wk.m.CVEID)
+				for _, id := range workIDs {
 					if id == "" {
 						continue
 					}
@@ -388,15 +396,30 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 			for _, wk := range works {
 				insight := buildVulnInsightFromEvent(ev, sbomStatus, wk.component, wk.m)
 				patch := map[string]interface{}{}
-				if epss.Enabled() && epssLimit > 0 {
-					id := canonicalCVEID(wk.m.CVEID)
+				id := canonicalCVEID(wk.m.CVEID)
+				if row, ok := stored.byID[id]; ok && stored.epssLoaded && row.EPSSScore != nil {
+					patch["epss"] = *row.EPSSScore
+					patch["epss_percentile"] = derefFloat(row.EPSSPercentile)
+					patch["epss_source"] = "first.org"
+					if row.EPSSDate != nil {
+						patch["epss_date"] = row.EPSSDate.Format("2006-01-02")
+					}
+				} else if useEPSSAPI {
 					if r, ok := epssResults[id]; ok {
 						patch["epss"] = r.EPSS
 						patch["epss_percentile"] = r.Percentile
 						patch["epss_source"] = "first.org"
 					}
 				}
-				if kev.Enabled() && kev.Contains(canonicalCVEID(wk.m.CVEID)) {
+				if stored.kevLoaded {
+					if row, ok := stored.byID[id]; ok && row.KEVAddedAt != nil {
+						patch["cisa_kev"] = true
+						patch["cisa_kev_added"] = row.KEVAddedAt.Format("2006-01-02")
+						if row.KEVRansomware != nil && *row.KEVRansomware {
+							patch["cisa_kev_ransomware"] = true
+						}
+					}
+				} else if kev.Enabled() && kev.Contains(id) {
 					patch["cisa_kev"] = true
 				}
 				if len(patch) > 0 {

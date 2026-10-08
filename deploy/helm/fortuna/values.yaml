@@ -103,6 +103,10 @@ core:
     enabled: true
     schedule: "23 */6 * * *"
     osvBaseURL: https://osv-vulnerabilities.storage.googleapis.com
+    # Exploitation data stored per CVE after each load; "" skips a feed (air-gapped clusters
+    # can point both at an internal mirror).
+    kevURL: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    epssURL: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
     ecosystems:
       - Debian
       - Ubuntu
