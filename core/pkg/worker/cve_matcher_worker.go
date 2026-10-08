@@ -77,11 +77,8 @@ func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsU
 	dbMgr := database.NewPostgresManager(db)
 	m := matcher.NewMatcher(dbMgr, db)
 
-	malwareMgr := malware.NewManager(db)
-	if malwareMgr.Enabled() {
-		m.SetMalwareChecker(malwareMgr)
-		log.Printf("[CVEMatcherWorker] Malware checker enabled (%d packages loaded)", 0)
-	}
+	// Always attached: the feeds may be empty now and synced later (the manager reloads).
+	m.SetMalwareChecker(malware.NewManager(db))
 
 	return &CVEMatcherWorker{
 		js:                     js,
@@ -227,7 +224,7 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	}
 	// Match CVEs using postgres-backed manager (cves + package_vulnerabilities)
 	startMatch := time.Now()
-	matches, complete, err := w.matcher.MatchSBOMComplete(ctx, &sbomModel, componentsOverride)
+	matches, catalogMalware, complete, err := w.matcher.MatchSBOMFindings(ctx, &sbomModel, componentsOverride)
 	if err != nil {
 		incCVEMatcherRun("error")
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
@@ -252,12 +249,21 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 			return fmt.Errorf("load malware components: %w", err)
 		}
 	}
-	malwareMatches := w.matcher.MatchMalware(ctx, &sbomModel, allComponents)
+	malwareMatches := w.matcher.MatchMalwareWithCatalog(ctx, &sbomModel, allComponents, catalogMalware)
+	if err := w.persistMalwareMatches(ctx, sbomModel.ID, malwareMatches, complete); err != nil {
+		return err
+	}
 	if len(malwareMatches) > 0 {
-		if err := w.persistMalwareMatches(ctx, malwareMatches); err != nil {
-			return err
-		}
 		w.logger.Printf("[MalwareMatch] sbom_id=%d malware_hits=%d", sbomModel.ID, len(malwareMatches))
+	}
+	if complete {
+		// Malicious-package advisories used to be reported as vulnerabilities; they are now
+		// supply_chain_malware insights, so retire the pod's vulnerability insights for them.
+		if err := w.db.WithContext(ctx).Exec(`UPDATE insights SET deleted_at = ?, updated_at = ?
+WHERE insight_type = 'vulnerability' AND cluster_id = ? AND resource_uid = ? AND cve_id LIKE 'MAL-%' AND deleted_at IS NULL`,
+			time.Now(), time.Now(), sbomModel.ClusterID, sbomModel.PodUID).Error; err != nil {
+			w.logger.Printf("⚠️  Failed to retire malicious-package vulnerability insights sbom_id=%d: %v", sbomModel.ID, err)
+		}
 	}
 
 	if len(matches) == 0 && len(malwareMatches) == 0 {
@@ -603,14 +609,71 @@ func containsString(values []string, v string) bool {
 	return false
 }
 
-func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, matches []*models.MalwareMatch) error {
-	for _, m := range matches {
-		if err := w.db.WithContext(ctx).
-			Where("sbom_id = ? AND package_name = ? AND package_version = ?",
-				m.SBOMID, m.PackageName, m.PackageVersion).
-			FirstOrCreate(m).Error; err != nil {
-			return fmt.Errorf("persist malware match: %w", err)
+// persistMalwareMatches stores the malware findings of one match run, one row per package of
+// the SBOM: a stored row is refreshed (verdict, feeds, advisories), a new one inserted, and when
+// the run was complete the rows of packages no longer flagged (dropped from a feed) are removed.
+func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, sbomID uint, matches []*models.MalwareMatch, complete bool) error {
+	if len(matches) == 0 && (!complete || !w.db.Migrator().HasTable(&models.MalwareMatch{})) {
+		return nil // nothing to store or retire
+	}
+	err := w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var stored []models.MalwareMatch
+		if err := tx.Where("sbom_id = ?", sbomID).Find(&stored).Error; err != nil {
+			return fmt.Errorf("load stored rows: %w", err)
 		}
+		byKey := make(map[string]*models.MalwareMatch, len(stored))
+		for i := range stored {
+			byKey[stored[i].PackageName+"\x1f"+stored[i].PackageVersion] = &stored[i]
+		}
+		keep := make(map[uint]bool, len(matches))
+		for _, m := range matches {
+			if m == nil {
+				continue
+			}
+			key := m.PackageName + "\x1f" + m.PackageVersion
+			if old := byKey[key]; old != nil {
+				if keep[old.ID] {
+					continue
+				}
+				keep[old.ID] = true
+				m.ID, m.MatchedAt, m.CreatedAt = old.ID, old.MatchedAt, old.CreatedAt
+				if err := tx.Model(&models.MalwareMatch{}).Where("id = ?", old.ID).Updates(map[string]interface{}{
+					"component_id":   m.ComponentID,
+					"ecosystem":      m.Ecosystem,
+					"reason":         m.Reason,
+					"confidence":     m.Confidence,
+					"malware_family": m.MalwareFamily,
+					"sources":        m.Sources,
+					"advisory_ids":   m.AdvisoryIDs,
+				}).Error; err != nil {
+					return fmt.Errorf("update row: %w", err)
+				}
+				continue
+			}
+			if err := tx.Create(m).Error; err != nil {
+				return fmt.Errorf("insert row: %w", err)
+			}
+			byKey[key] = m
+			keep[m.ID] = true
+		}
+		if !complete {
+			return nil
+		}
+		var stale []uint
+		for i := range stored {
+			if !keep[stored[i].ID] {
+				stale = append(stale, stored[i].ID)
+			}
+		}
+		if len(stale) > 0 {
+			if err := tx.Where("id IN ?", stale).Delete(&models.MalwareMatch{}).Error; err != nil {
+				return fmt.Errorf("delete stale rows: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("persist malware match: %w", err)
 	}
 	return nil
 }

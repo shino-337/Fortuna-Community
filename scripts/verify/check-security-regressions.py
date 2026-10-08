@@ -289,7 +289,7 @@ POSTGRES_REQUIRED = {
     "./pkg/rep": ["TestRuntimeSourceRecordConcurrentDuplicatePostgres"],
     "./pkg/graph": ["TestAGEScopedTraversalPostgres"],
     "./pkg/cve/loader": ["TestVersionedCatalogPostgres", "TestRemapFindingsToCanonicalPostgres"],
-    "./pkg/cve/matcher": ["TestVersionedCatalogMatchPostgres"],
+    "./pkg/cve/matcher": ["TestVersionedCatalogMatchPostgres", "TestCatalogMalwareMatchPostgres"],
     "./pkg/cve/enrich": ["TestEnrichPostgres"],
     "./internal/api/risk": ["TestRiskTrendsAggregationPostgres"],
 }

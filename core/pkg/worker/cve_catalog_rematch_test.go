@@ -96,6 +96,31 @@ func TestCVECatalogRematcherQueuesOncePerGeneration(t *testing.T) {
 	if st.Version != int64(g1+1) {
 		t.Fatalf("rematch marker = %d, want %d", st.Version, g1+1)
 	}
+
+	// A change of the malware feeds re-matches too, once.
+	newMalwareGen := func() {
+		at := time.Now()
+		g := models.CatalogGeneration{CatalogType: "malware", SourceName: "aikido", Status: "active", StartedAt: at, ActivatedAt: &at, RecordCounts: "{}"}
+		if err := db.Create(&g).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	newMalwareGen()
+	if n, err := r.CheckOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("malware change: n=%d err=%v", n, err)
+	}
+	if n, _ := r.CheckOnce(ctx); n != 0 {
+		t.Fatalf("same malware generation re-queued %d SBOMs", n)
+	}
+	// Both catalogs changed since the last check: one re-match covers them.
+	newMalwareGen()
+	newGen()
+	if n, err := r.CheckOnce(ctx); err != nil || n != 1 {
+		t.Fatalf("both changed: n=%d err=%v", n, err)
+	}
+	if n, _ := r.CheckOnce(ctx); n != 0 {
+		t.Fatalf("both changed: re-queued %d SBOMs", n)
+	}
 }
 
 func TestCanonicalCVEID(t *testing.T) {

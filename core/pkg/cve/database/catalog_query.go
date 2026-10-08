@@ -61,6 +61,7 @@ func (m *Manager) versionedCatalogGeneration(ctx context.Context) uint {
 type catalogRangeRow struct {
 	AdvisoryID     string
 	Source         string
+	Kind           string
 	PackageName    string
 	Release        string
 	RangeType      string
@@ -108,7 +109,7 @@ func (m *Manager) queryVersionedCatalogBulk(ctx context.Context, gen uint, eco s
 
 	var rows []catalogRangeRow
 	if err := db.Raw(`
-SELECT f.advisory_id, a.source, f.package_name, f.release, f.range_type, f.introduced, f.fixed,
+SELECT f.advisory_id, a.source, a.kind, f.package_name, f.release, f.range_type, f.introduced, f.fixed,
        f.last_affected, f.vendor_severity, a.source_severity, a.summary, a.details,
        a.published_at, a.modified_at, a.cvss_v3_vector, a.cvss_v3_score, a.cvss_v4_vector, a.cvss_v4_score
 FROM vuln_affected f
@@ -141,11 +142,18 @@ WHERE r.advisory_id = ANY(@ids) AND `+visible("r"),
 		refs[r.AdvisoryID] = append(refs[r.AdvisoryID], loader.AdvisoryRef{RefID: r.RefID, Relation: r.Relation, RefKind: r.RefKind})
 	}
 
+	markMalicious(rows, refs)
+
 	vulnIDs := make(map[string][]string, len(advisoryIDs))
 	var cveIDs []string
 	seenCVE := map[string]bool{}
 	for _, r := range rows {
 		if _, ok := vulnIDs[r.AdvisoryID]; ok {
+			continue
+		}
+		if r.Kind == "malware" {
+			// A malicious package is reported under its own advisory, never a CVE or GHSA alias.
+			vulnIDs[r.AdvisoryID] = []string{r.AdvisoryID}
 			continue
 		}
 		ids := loader.CanonicalVulnIDs(r.AdvisoryID, r.Source, refs[r.AdvisoryID])
@@ -178,6 +186,7 @@ WHERE r.advisory_id = ANY(@ids) AND `+visible("r"),
 				FixedVersion: fixed,
 				Release:      strings.TrimSpace(r.Release),
 				AdvisoryID:   r.AdvisoryID,
+				Kind:         r.Kind,
 			}
 			if r.PublishedAt != nil {
 				c.Published = *r.PublishedAt
@@ -190,6 +199,36 @@ WHERE r.advisory_id = ANY(@ids) AND `+visible("r"),
 		}
 	}
 	return out, nil
+}
+
+// markMalicious marks as malware the advisories that describe a malicious package without
+// being one of its MAL-* entries: those a MAL advisory aliases (a PYSEC or GHSA about a
+// compromised release) and those pointing to a MAL advisory (a Go typosquat entry). They are
+// the same finding as the MAL advisory, not a vulnerability of the package.
+func markMalicious(rows []catalogRangeRow, refs map[string][]loader.AdvisoryRef) {
+	malicious := map[string]bool{}
+	for _, r := range rows {
+		if r.Kind != "malware" {
+			continue
+		}
+		for _, ref := range refs[r.AdvisoryID] {
+			if ref.Relation == "alias" {
+				malicious[ref.RefID] = true
+			}
+		}
+	}
+	for id, rs := range refs {
+		for _, ref := range rs {
+			if strings.HasPrefix(ref.RefID, "MAL-") {
+				malicious[id] = true
+			}
+		}
+	}
+	for i := range rows {
+		if malicious[rows[i].AdvisoryID] {
+			rows[i].Kind = "malware"
+		}
+	}
 }
 
 // rateCatalogCandidate sets the severity of one range from the best source available to it.
@@ -301,7 +340,7 @@ ORDER BY vuln_id, score DESC, vector`, map[string]interface{}{"gen": gen, "ids":
 // for distro packages.
 func (m *Manager) getFromVersionedCatalog(ctx context.Context, gen uint, ecosystem, eco string, packages []string) (map[string][]*cve.CVE, error) {
 	result := make(map[string][]*cve.CVE, len(packages))
-	cacheKey := func(pkg string) string { return fmt.Sprintf("%s:%s:vcat-%d", ecosystem, pkg, gen) }
+	cacheKey := func(pkg string) string { return fmt.Sprintf("%s:%s:vcat2-%d", ecosystem, pkg, gen) }
 	uncached := make([]string, 0, len(packages))
 	for _, pkg := range packages {
 		if cached, ok := m.cache.Get(cacheKey(pkg)); ok {
