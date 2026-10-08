@@ -125,6 +125,7 @@ var (
 	_ = Migration156_VulnEcosystemRelease
 	_ = Migration157_VulnCatalogVersioned
 	_ = Migration158_CVEMatchAdvisories
+	_ = Migration159_MalwareMatchSources
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -363,6 +364,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration156_VulnEcosystemRelease,       // CVE: advisory ranges keep their distro release
 		Migration157_VulnCatalogVersioned,       // CVE: versioned advisory catalog, per-CVE enrichment, feed state
 		Migration158_CVEMatchAdvisories,         // CVE: one finding per CVE with its matched advisories
+		Migration159_MalwareMatchSources,        // Malware: one finding merging curated feeds and OSV MAL advisories
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

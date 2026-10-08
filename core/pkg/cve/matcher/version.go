@@ -10,4 +10,6 @@ package matcher
 // v1.6: AlmaLinux, Rocky and Red Hat advisories matched.
 // v1.7: matched from the versioned catalog; one finding per (component, CVE) listing every
 // matching advisory, rated vendor first, then CVSS.
-const ResolverVersion = "v1.7"
+// v1.8: malicious-package advisories (OSV MAL-* and the entries tied to them) reported as
+// malware findings merged with the curated feeds, not as vulnerabilities.
+const ResolverVersion = "v1.8"

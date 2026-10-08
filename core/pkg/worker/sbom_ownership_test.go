@@ -43,5 +43,5 @@ func TestMalwarePersistenceFailureIsReturned(t *testing.T) {
 	db := newReplayWorkerTestDB(t)
 	worker := NewCVEMatcherWorker(nil, db, nil)
 	// No malware_matches table: failure must not be reported as successful matching.
-	require.ErrorContains(t, worker.persistMalwareMatches(context.Background(), []*models.MalwareMatch{{ClusterID: "cluster-1", SBOMID: 1, PodUID: "pod-1", PackageName: "evil", PackageVersion: "1"}}), "persist malware match")
+	require.ErrorContains(t, worker.persistMalwareMatches(context.Background(), 1, []*models.MalwareMatch{{ClusterID: "cluster-1", SBOMID: 1, PodUID: "pod-1", PackageName: "evil", PackageVersion: "1"}}, true), "persist malware match")
 }

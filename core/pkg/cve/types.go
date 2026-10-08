@@ -25,4 +25,7 @@ type CVE struct {
 	// SeveritySource names it (vendor, advisory_cvss, nvd, cve_cvss, errata_cvss, default).
 	SeverityTier   int
 	SeveritySource string
+	// Kind is "malware" for a malicious-package advisory (OSV MAL-*): a match is reported as a
+	// supply-chain malware finding, not a vulnerability. "" or "vulnerability" otherwise.
+	Kind string
 }

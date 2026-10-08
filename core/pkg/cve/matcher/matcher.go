@@ -38,7 +38,6 @@ type Matcher struct {
 
 // MalwareChecker is satisfied by malware.Manager (avoids import cycle).
 type MalwareChecker interface {
-	Enabled() bool
 	BulkCheck(ctx context.Context, packages []malware.PkgVersion) map[string]*models.MalwarePackage
 }
 
@@ -79,12 +78,25 @@ func (m *Matcher) MatchSBOMComplete(
 	sbom *models.SBOM,
 	componentsOverride []*models.SBOMComponent,
 ) (matches []*models.CVEMatch, complete bool, err error) {
+	matches, _, complete, err = m.MatchSBOMFindings(ctx, sbom, componentsOverride)
+	return matches, complete, err
+}
+
+// MatchSBOMFindings is MatchSBOMComplete that also returns the malicious-package advisories
+// (OSV MAL-*) the catalog matched, one per component; pass them to MatchMalwareWithCatalog so
+// they join the curated malware feeds instead of being reported as vulnerabilities.
+func (m *Matcher) MatchSBOMFindings(
+	ctx context.Context,
+	sbom *models.SBOM,
+	componentsOverride []*models.SBOMComponent,
+) (matches []*models.CVEMatch, malware []*models.MalwareMatch, complete bool, err error) {
 	complete = true
-	matches, err = m.matchSBOM(ctx, sbom, componentsOverride, &complete)
+	found := newCatalogMalware(sbom)
+	matches, err = m.matchSBOM(ctx, sbom, componentsOverride, &complete, found)
 	if err != nil {
 		complete = false
 	}
-	return matches, complete, err
+	return matches, found.matches(), complete, err
 }
 
 func (m *Matcher) matchSBOM(
@@ -92,6 +104,7 @@ func (m *Matcher) matchSBOM(
 	sbom *models.SBOM,
 	componentsOverride []*models.SBOMComponent,
 	complete *bool,
+	malware *catalogMalware,
 ) ([]*models.CVEMatch, error) {
 	// SBOM lifecycle: only match finalized SBOMs to avoid races with mutable components.
 	status := strings.ToLower(strings.TrimSpace(sbom.Status))
@@ -300,6 +313,10 @@ func (m *Matcher) matchSBOM(
 							recordMatcherVulnerabilitySkip("not_vulnerable", "go")
 							continue
 						}
+						if cveData.Kind == "malware" {
+							malware.add(comp, purl, cveData)
+							continue
+						}
 						if existing := seenMatch[dedupKey][cveData.ID]; existing != nil {
 							mergeMatch(existing, cveData)
 							continue
@@ -422,7 +439,7 @@ func (m *Matcher) matchSBOM(
 						continue
 					}
 					compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
-					if existing == nil && matchCountByComponent[compKey] >= maxMatchesPerComponent {
+					if existing == nil && cveData.Kind != "malware" && matchCountByComponent[compKey] >= maxMatchesPerComponent {
 						recordMatcherVulnerabilitySkip("cap_reached", ecosystem)
 						continue
 					}
@@ -454,6 +471,10 @@ func (m *Matcher) matchSBOM(
 					if !vulnerable {
 						recordMatcherVulnerabilitySkip("not_vulnerable", ecosystem)
 						continue // Not vulnerable
+					}
+					if cveData.Kind == "malware" {
+						malware.add(component, purl, cveData)
+						continue
 					}
 					if existing != nil {
 						mergeMatch(existing, cveData)
