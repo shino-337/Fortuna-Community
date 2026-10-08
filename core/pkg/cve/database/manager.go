@@ -80,6 +80,9 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 	}
 
 	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	if gen := m.versionedCatalogGeneration(ctx); gen > 0 {
+		return m.getFromVersionedCatalog(ctx, gen, ecosystem, eco, packages)
+	}
 	useOSVMirror := m.hasOSVMirrorTables() && useOSVMirrorForEcosystem(eco)
 	cacheSuffix := "*"
 	if useOSVMirror {
@@ -500,8 +503,9 @@ func mergeCVEByIDUnique(primary, extra []*cve.CVE) []*cve.CVE {
 			if c == nil || c.ID == "" {
 				continue
 			}
-			// One advisory can have several ranges (per release, or split intervals); keep each.
-			key := c.ID + "|" + c.Release + "|" + c.Constraint
+			// One advisory can have several ranges (per release, or split intervals), and several
+			// advisories the same range of one CVE; keep each.
+			key := c.ID + "|" + c.AdvisoryID + "|" + c.Release + "|" + c.Constraint
 			if _, ok := seen[key]; ok {
 				continue
 			}

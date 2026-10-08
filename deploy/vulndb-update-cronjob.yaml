@@ -17,7 +17,8 @@ spec:
 ---
 # Downloads OSV advisories and loads what changed as a new CVE catalog generation. Core notices
 # the new generation and re-matches running workloads. Needs HTTPS egress to the OSV export
-# (or to core.vulnDBUpdate.osvBaseURL) and the database; no Kubernetes API access.
+# (or to core.vulnDBUpdate.osvBaseURL), the KEV and EPSS feeds, and the database; no Kubernetes
+# API access.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -60,6 +61,8 @@ spec:
                 - "-fetch-dir=/var/lib/fortuna/vulndb"
                 - "-ecosystems=Debian,Ubuntu,Alpine,Rocky Linux,AlmaLinux,Red Hat,Wolfi,Chainguard,Go,npm,PyPI,Maven,RubyGems,crates.io,NuGet,Packagist"
                 - "-osv-base-url=https://osv-vulnerabilities.storage.googleapis.com"
+                - "-kev-url=https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+                - "-epss-url=https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
                 - "-keep-generations=2"
                 - "-workers=8"
               env:

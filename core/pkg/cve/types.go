@@ -17,4 +17,12 @@ type CVE struct {
 	Published  time.Time
 	Modified   time.Time
 	References []string
+
+	// AdvisoryID is the advisory the range comes from when ID is the canonical CVE it was
+	// grouped under ("" when ID is the advisory itself).
+	AdvisoryID string
+	// SeverityTier orders where Severity came from (lower is better, 0 = not ranked);
+	// SeveritySource names it (vendor, advisory_cvss, nvd, cve_cvss, errata_cvss, default).
+	SeverityTier   int
+	SeveritySource string
 }

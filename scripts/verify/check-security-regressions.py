@@ -288,7 +288,9 @@ POSTGRES_REQUIRED = {
     "./internal/api": ["TestSourceHealthPostgresConcurrencyAndRollback", "TestRuntimeCoveragePostgres", "TestRuntimeCoveragePostgresLegacySchemaUpgrade", "TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows", "TestSBOMListClusterScopePostgres", "TestSBOMListDuplicateUIDClusterIsolationPostgres", "TestSBOMListFailClosedPostgres"],
     "./pkg/rep": ["TestRuntimeSourceRecordConcurrentDuplicatePostgres"],
     "./pkg/graph": ["TestAGEScopedTraversalPostgres"],
-    "./pkg/cve/loader": ["TestVersionedCatalogPostgres"],
+    "./pkg/cve/loader": ["TestVersionedCatalogPostgres", "TestRemapFindingsToCanonicalPostgres"],
+    "./pkg/cve/matcher": ["TestVersionedCatalogMatchPostgres"],
+    "./pkg/cve/enrich": ["TestEnrichPostgres"],
     "./internal/api/risk": ["TestRiskTrendsAggregationPostgres"],
 }
 
