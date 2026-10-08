@@ -51,6 +51,7 @@ type osvMirrorRow struct {
 	CVSSScore    float64
 	Aliases      string
 	PackageName  string
+	Release      string
 	RangeType    string
 	Introduced   string
 	Fixed        string
@@ -251,6 +252,7 @@ SELECT
   v.cvss_score,
   v.aliases,
   p.package_name,
+  p.ecosystem_release AS release,
   r.range_type,
   r.introduced,
   r.fixed,
@@ -259,7 +261,7 @@ FROM osv_packages p
 JOIN osv_vulnerabilities v ON v.id = p.vuln_id
 JOIN osv_ranges r ON r.package_id = p.id
 WHERE p.ecosystem = ? AND p.package_name IN ?
-  AND UPPER(TRIM(r.range_type)) IN ('SEMVER', 'ECOSYSTEM')
+  AND UPPER(TRIM(r.range_type)) IN ('SEMVER', 'ECOSYSTEM', 'VERSION')
 `
 	args := []interface{}{eco, packages}
 	if useGenerationScope {
@@ -286,9 +288,12 @@ WHERE p.ecosystem = ? AND p.package_name IN ?
 			// all mirrored ecosystems
 		case "ECOSYSTEM":
 			// Go modules use SEMVER in OSV; ECOSYSTEM rows for go are skipped at ingest and ignored here.
-			if eco == "go" || !isDistroOSVEcosystem(eco) {
+			// PyPI, Maven, RubyGems, NuGet and Packagist publish ECOSYSTEM ranges, like the distros.
+			if eco == "go" {
 				continue
 			}
+		case "VERSION":
+			// Exact affected versions from the OSV `versions` list.
 		default:
 			continue
 		}
@@ -308,6 +313,7 @@ WHERE p.ecosystem = ? AND p.package_name IN ?
 			CVSSVector:   "",
 			Constraint:   constraint,
 			FixedVersion: fixed,
+			Release:      strings.TrimSpace(row.Release),
 			Published:    time.Time{},
 			Modified:     time.Time{},
 			References:   nil,
@@ -479,6 +485,7 @@ func packageVulnerabilityToCVE(pv models.PackageVulnerability) *cve.CVE {
 		CVSSVector:   pv.CVE.CVSSVector,
 		Constraint:   constraint,
 		FixedVersion: fixed,
+		Release:      strings.TrimSpace(pv.EcosystemRelease),
 		Published:    published,
 		Modified:     modified,
 		References:   nil,
@@ -493,10 +500,12 @@ func mergeCVEByIDUnique(primary, extra []*cve.CVE) []*cve.CVE {
 			if c == nil || c.ID == "" {
 				continue
 			}
-			if _, ok := seen[c.ID]; ok {
+			// One advisory can have several ranges (per release, or split intervals); keep each.
+			key := c.ID + "|" + c.Release + "|" + c.Constraint
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			seen[c.ID] = struct{}{}
+			seen[key] = struct{}{}
 			out = append(out, c)
 		}
 	}
@@ -522,6 +531,10 @@ func buildConstraintFromPV(pv models.PackageVulnerability) string {
 		parts = append(parts, "<"+pv.VersionEndExcluding)
 	}
 
+	// OSV interval with no fix yet, affected from the first version: every version matches.
+	if len(parts) == 0 && pv.VersionStartIncluding == "0" {
+		return ">=0"
+	}
 	return strings.Join(parts, ", ")
 }
 
@@ -535,6 +548,10 @@ func buildOSVRangeConstraint(introduced, fixed, lastAffected string) string {
 		parts = append(parts, "<"+fixed)
 	} else if lastAffected != "" {
 		parts = append(parts, "<="+lastAffected)
+	}
+	// Open interval (no fix yet) affected from the first version.
+	if len(parts) == 0 {
+		return ">=0"
 	}
 	return strings.Join(parts, ", ")
 }

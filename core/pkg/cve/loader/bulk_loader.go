@@ -386,17 +386,18 @@ func (l *BulkLoader) bulkInsertPackageVulns(ctx context.Context, pkgVulns []*Par
 func (l *BulkLoader) batchInsertPackageVulns(ctx context.Context, pkgVulns []*ParsedPackageVulnerability) error {
 	// Build multi-row INSERT
 	values := make([]string, len(pkgVulns))
-	args := make([]interface{}, 0, len(pkgVulns)*11)
+	args := make([]interface{}, 0, len(pkgVulns)*10)
 	argIndex := 1
 
 	for i, pv := range pkgVulns {
-		values[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW(), NOW())",
-			argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6, argIndex+7, argIndex+8)
+		values[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW(), NOW())",
+			argIndex, argIndex+1, argIndex+2, argIndex+3, argIndex+4, argIndex+5, argIndex+6, argIndex+7, argIndex+8, argIndex+9)
 
 		args = append(args,
 			pv.CVEID,
 			pv.PackageName,
 			pv.Ecosystem,
+			pv.EcosystemRelease,
 			pv.VersionStartIncluding,
 			pv.VersionStartExcluding,
 			pv.VersionEndIncluding,
@@ -405,12 +406,12 @@ func (l *BulkLoader) batchInsertPackageVulns(ctx context.Context, pkgVulns []*Pa
 			l.catalogGenerationID,
 		)
 
-		argIndex += 9
+		argIndex += 10
 	}
 
 	sql := fmt.Sprintf(`
 		INSERT INTO package_vulnerabilities (
-			cve_id, package_name, ecosystem,
+			cve_id, package_name, ecosystem, ecosystem_release,
 			version_start_including, version_start_excluding,
 			version_end_including, version_end_excluding,
 			fixed_version, catalog_generation_id, created_at, updated_at

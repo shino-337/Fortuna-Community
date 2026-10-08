@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/pkg/cve/loader"
 	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
@@ -16,6 +17,7 @@ import (
 type Stats struct {
 	Documents        int
 	VulnsUpserted    int
+	VulnsWithdrawn   int
 	PackagesInserted int
 	RangesInserted   int
 }
@@ -65,29 +67,73 @@ func normalizeEcosystem(e string) string {
 	}
 }
 
-// ingestRangeEvents flattens OSV range events into osv_ranges rows.
-// storeType is SEMVER or ECOSYSTEM (stored verbatim for matcher policy).
+// ingestRangeEvents flattens OSV range events into osv_ranges rows, one per affected interval.
+// storeType is SEMVER or ECOSYSTEM (stored verbatim for matcher policy). An interval with no
+// fix yet is stored with Fixed and LastAffected empty.
 func ingestRangeEvents(ctx context.Context, db *gorm.DB, pkgRow *models.OSVPackage, storeType string, r Range, stats *Stats, catalogGenerationID uint) error {
-	var currentIntroduced string
+	events := make([]loader.OSVEvent, 0, len(r.Events))
 	for _, ev := range r.Events {
-		if ev.Introduced != "" {
-			currentIntroduced = strings.TrimSpace(ev.Introduced)
+		events = append(events, loader.OSVEvent{Introduced: ev.Introduced, Fixed: ev.Fixed, LastAffected: ev.LastAffected})
+	}
+	for _, iv := range loader.OSVRangeIntervals(events) {
+		row := models.OSVRange{
+			PackageID:           pkgRow.ID,
+			RangeType:           storeType,
+			Introduced:          iv.Introduced,
+			Fixed:               iv.Fixed,
+			LastAffected:        iv.LastAffected,
+			CatalogGenerationID: catalogGenerationID,
+		}
+		if err := db.WithContext(ctx).Create(&row).Error; err != nil {
+			return fmt.Errorf("ingest OSV range: %w", err)
+		}
+		stats.RangesInserted++
+	}
+	return nil
+}
+
+// ingestExplicitVersions stores an OSV `versions` list as exact-version ranges.
+func ingestExplicitVersions(ctx context.Context, db *gorm.DB, pkgRow *models.OSVPackage, versions []string, stats *Stats, catalogGenerationID uint) error {
+	seen := make(map[string]struct{}, len(versions))
+	for _, v := range versions {
+		v = strings.TrimSpace(v)
+		if v == "" {
 			continue
 		}
-		if ev.Fixed != "" || ev.LastAffected != "" {
-			row := models.OSVRange{
-				PackageID:           pkgRow.ID,
-				RangeType:           storeType,
-				Introduced:          strings.TrimSpace(currentIntroduced),
-				Fixed:               strings.TrimSpace(ev.Fixed),
-				LastAffected:        strings.TrimSpace(ev.LastAffected),
-				CatalogGenerationID: catalogGenerationID,
-			}
-			if err := db.WithContext(ctx).Create(&row).Error; err != nil {
-				return fmt.Errorf("ingest OSV range: %w", err)
-			}
-			stats.RangesInserted++
+		if _, ok := seen[v]; ok {
+			continue
 		}
+		seen[v] = struct{}{}
+		if len(seen) > maxExplicitVersionsPerPackage {
+			break
+		}
+		row := models.OSVRange{
+			PackageID:           pkgRow.ID,
+			RangeType:           "VERSION",
+			Introduced:          v,
+			LastAffected:        v,
+			CatalogGenerationID: catalogGenerationID,
+		}
+		if err := db.WithContext(ctx).Create(&row).Error; err != nil {
+			return fmt.Errorf("ingest OSV version: %w", err)
+		}
+		stats.RangesInserted++
+	}
+	return nil
+}
+
+const maxExplicitVersionsPerPackage = 2000
+
+// deleteVulnRows removes the packages and ranges previously ingested for an advisory, so a
+// re-ingested (modified) advisory replaces its old ranges instead of adding to them.
+func deleteVulnRows(ctx context.Context, db *gorm.DB, vulnID string) error {
+	if err := db.WithContext(ctx).
+		Where("package_id IN (?)", db.Model(&models.OSVPackage{}).Select("id").Where("vuln_id = ?", vulnID)).
+		Delete(&models.OSVRange{}).Error; err != nil {
+		return fmt.Errorf("delete OSV ranges for %s: %w", vulnID, err)
+	}
+	if err := db.WithContext(ctx).Where("vuln_id = ?", vulnID).Delete(&models.OSVPackage{}).Error; err != nil {
+		return fmt.Errorf("delete OSV packages for %s: %w", vulnID, err)
 	}
 	return nil
 }
@@ -131,6 +177,18 @@ func IngestDocumentWithGeneration(ctx context.Context, db *gorm.DB, doc *Documen
 		return nil, fmt.Errorf("ingest OSV: db/doc required")
 	}
 	stats := &Stats{Documents: 1}
+
+	if err := deleteVulnRows(ctx, db, doc.ID); err != nil {
+		return nil, err
+	}
+	// A withdrawn advisory was found to be invalid; drop it instead of matching it.
+	if strings.TrimSpace(doc.Withdrawn) != "" {
+		if err := db.WithContext(ctx).Where("id = ?", doc.ID).Delete(&models.OSVVulnerability{}).Error; err != nil {
+			return nil, fmt.Errorf("delete withdrawn OSV vulnerability %s: %w", doc.ID, err)
+		}
+		stats.VulnsWithdrawn++
+		return stats, nil
+	}
 
 	var publishedAt time.Time
 	if doc.Published != "" {
@@ -177,15 +235,29 @@ func IngestDocumentWithGeneration(ctx context.Context, db *gorm.DB, doc *Documen
 			VulnID:              doc.ID,
 			Ecosystem:           eco,
 			PackageName:         name,
+			EcosystemRelease:    loader.OSVEcosystemRelease(aff.Package.Ecosystem),
 			CatalogGenerationID: catalogGenerationID,
 		}
 		if err := db.WithContext(ctx).
-			Where("vuln_id = ? AND ecosystem = ? AND package_name = ?", pkgRow.VulnID, pkgRow.Ecosystem, pkgRow.PackageName).
+			Where("vuln_id = ? AND ecosystem = ? AND package_name = ? AND ecosystem_release = ?", pkgRow.VulnID, pkgRow.Ecosystem, pkgRow.PackageName, pkgRow.EcosystemRelease).
 			Assign(map[string]interface{}{"catalog_generation_id": catalogGenerationID}).
 			FirstOrCreate(&pkgRow).Error; err != nil {
 			return nil, fmt.Errorf("ingest OSV package: %w", err)
 		}
 		stats.PackagesInserted++
+
+		versionRanges := 0
+		for _, r := range aff.Ranges {
+			switch strings.ToUpper(strings.TrimSpace(r.Type)) {
+			case "SEMVER", "ECOSYSTEM":
+				versionRanges++
+			}
+		}
+		if versionRanges == 0 {
+			if err := ingestExplicitVersions(ctx, db, &pkgRow, aff.Versions, stats, catalogGenerationID); err != nil {
+				return nil, err
+			}
+		}
 
 		for _, r := range aff.Ranges {
 			rt := strings.ToUpper(strings.TrimSpace(r.Type))
