@@ -153,6 +153,7 @@ These are read by the database migrations that run at Core startup.
 | `FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL` | `30s` | How often the SBOM dead-letter queue depth is polled for metrics; `0` or `off` disables. |
 | `FORTUNA_SBOM_DLQ_REPLAY_MAX_ATTEMPTS` | `5` | Replay attempts for a dead-lettered SBOM event before it is dropped. |
 | `FORTUNA_OSV_SOURCE_DIR` | none | Directory of OSV JSON files loaded into the vulnerability mirror at startup when it is empty, and on database updates. |
+| `FORTUNA_CVE_REMATCH_INTERVAL` | `5m` | How often Core checks for a new CVE catalog generation; when one becomes active, every running SBOM is re-matched once. Also updates `fortuna_cve_catalog_age_seconds`. `0` or `off` disables. |
 | `FORTUNA_CVE_CACHE_MAX_ENTRIES` | `10000` | Maximum entries in the in-memory CVE query cache. |
 | `FORTUNA_K8S_COMPONENT_MAP_PATH` | none | Path to the Kubernetes component to module mapping YAML; checked before the built-in locations. |
 | `FORTUNA_KEV_ENABLED` | none | Refreshes the CISA Known Exploited Vulnerabilities catalog and flags matching CVEs. |
@@ -165,6 +166,22 @@ These are read by the database migrations that run at Core startup.
 | `FORTUNA_EPSS_MAX_PER_SBOM` | `40` | Maximum CVEs per SBOM looked up in EPSS; `0` disables, a negative value means 10000. |
 | `FORTUNA_TRUSTED_REGISTRIES` | none | Comma-separated registries shown as trusted in image trust (`host`, `*.domain` or `prefix/*`). |
 | `FORTUNA_BLOCKED_REGISTRIES` | none | Comma-separated registries shown as blocked in image trust; checked before the trusted list. |
+
+
+#### Scheduled vulnerability database update
+
+The `fortuna-vulndb-update` CronJob (Helm `core.vulnDBUpdate`, on by default) runs `cve-loader-optimized -mode=sync` every 6 hours. It downloads the OSV export of each configured ecosystem (`<osvBaseURL>/<Ecosystem>/all.zip`) only when its ETag changed, writes the advisories that changed, and loads them as a new CVE catalog generation. Unchanged advisories are carried into the new generation, removed and withdrawn ones are dropped, and generations older than `keepGenerations` are retired. Core then re-matches running workloads (`FORTUNA_CVE_REMATCH_INTERVAL`).
+
+| Value | Default | Purpose |
+| --- | --- | --- |
+| `core.vulnDBUpdate.enabled` | `true` | Installs the CronJob and its PVC. |
+| `core.vulnDBUpdate.schedule` | `23 */6 * * *` | Cron schedule. |
+| `core.vulnDBUpdate.osvBaseURL` | `https://osv-vulnerabilities.storage.googleapis.com` | OSV export location; point it at an internal mirror with the same layout for air-gapped clusters. |
+| `core.vulnDBUpdate.ecosystems` | Debian, Ubuntu, Alpine, Rocky Linux, AlmaLinux, Wolfi, Chainguard, Go, npm, PyPI, Maven, RubyGems, crates.io, NuGet, Packagist | OSV ecosystems downloaded. |
+| `core.vulnDBUpdate.keepGenerations` | `2` | Active catalog generations kept; older rows are deleted. |
+| `core.vulnDBUpdate.persistence.enabled` | `true` | Keeps downloads between runs on a PVC (`size`, `storageClassName`); without it every run downloads and reloads everything. |
+
+An ecosystem whose download fails keeps its previous advisories and fails the job, so the failure shows in the CronJob history; an export that lost more than half its advisories is rejected the same way. The job needs HTTPS egress to `osvBaseURL` and the database, and no Kubernetes API access.
 
 ### Scheduled jobs and retention
 

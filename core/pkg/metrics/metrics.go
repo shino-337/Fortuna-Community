@@ -180,6 +180,26 @@ var (
 		},
 	)
 
+	// CVE catalog freshness (polled by the catalog rematch loop).
+	CVECatalogAgeSeconds = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_cve_catalog_age_seconds",
+			Help: "Seconds since the active CVE catalog generation was activated; -1 when there is none",
+		},
+	)
+	CVECatalogGeneration = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_cve_catalog_generation",
+			Help: "ID of the active CVE catalog generation",
+		},
+	)
+	CVECatalogRematchEventsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_cve_catalog_rematch_events_total",
+			Help: "SBOM re-match events queued because a new CVE catalog generation became active",
+		},
+	)
+
 	// Denominator for drift / ingest SLO (one increment per successful UpsertSBOMWithComponents commit).
 	SBOMStoreUpsertCommitsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

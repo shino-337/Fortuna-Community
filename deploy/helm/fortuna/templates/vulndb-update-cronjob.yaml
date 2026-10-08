@@ -1,0 +1,101 @@
+{{- if and .Values.core.enabled .Values.core.vulnDBUpdate.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- if .Values.core.vulnDBUpdate.persistence.enabled }}
+---
+# Keeps downloaded OSV exports between runs, so each run downloads only the ecosystems whose
+# export changed and loads only the advisories that changed.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fortuna-vulndb-data
+  namespace: {{ $ns }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.core.vulnDBUpdate.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.core.vulnDBUpdate.persistence.size }}
+{{- end }}
+---
+# Downloads OSV advisories and loads what changed as a new CVE catalog generation. Core notices
+# the new generation and re-matches running workloads. Needs HTTPS egress to the OSV export
+# (or to core.vulnDBUpdate.osvBaseURL) and the database; no Kubernetes API access.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fortuna-vulndb-update
+  namespace: {{ $ns }}
+  labels:
+    app: fortuna-vulndb-update
+spec:
+  schedule: {{ .Values.core.vulnDBUpdate.schedule | quote }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.core.vulnDBUpdate.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            app: fortuna-vulndb-update
+        spec:
+          automountServiceAccountToken: false
+          {{- include "fortuna.imagePullSecrets" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: vulndb-update
+              image: {{ include "fortuna.image" (dict "root" . "image" .Values.core.image) }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/app/cve-loader-optimized"]
+              args:
+                - "-mode=sync"
+                - "-fetch-dir=/var/lib/fortuna/vulndb"
+                - "-ecosystems={{ join "," .Values.core.vulnDBUpdate.ecosystems }}"
+                - "-osv-base-url={{ .Values.core.vulnDBUpdate.osvBaseURL }}"
+                - "-keep-generations={{ .Values.core.vulnDBUpdate.keepGenerations }}"
+                - "-workers={{ .Values.core.vulnDBUpdate.workers }}"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: fortuna-secrets
+                      key: database-url
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/fortuna/vulndb
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.core.vulnDBUpdate.resources | nindent 16 }}
+          volumes:
+            - name: data
+              {{- if .Values.core.vulnDBUpdate.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: fortuna-vulndb-data
+              {{- else }}
+              emptyDir:
+                sizeLimit: {{ .Values.core.vulnDBUpdate.persistence.size }}
+              {{- end }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+{{- end }}

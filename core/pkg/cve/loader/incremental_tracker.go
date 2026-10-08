@@ -102,8 +102,9 @@ func (t *IncrementalTracker) GetFilesToProcess(ctx context.Context) ([]string, e
 		} else {
 			// Existing file - check if changed
 
-			// Check 1: Modified time changed
-			if fileInfo.MTime.After(meta.FileMTime) {
+			// Check 1: Modified time changed. PostgreSQL stores microseconds, so compare at that
+			// precision; otherwise every file looks modified on every run.
+			if fileInfo.MTime.Truncate(time.Microsecond).After(meta.FileMTime.Truncate(time.Microsecond)) {
 				shouldProcess = true
 				reason = "mtime_changed"
 			}
