@@ -150,6 +150,16 @@ func (m *Matcher) MatchSBOM(
 		queryEcosystem := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 
 		componentKey := component.ComponentName
+		// Debian/Ubuntu/Alpine advisories are keyed by source (origin) package, while the
+		// SBOM lists binary packages (libssl3 is built from openssl). Query by the purl
+		// `upstream` qualifier when present, else by the purl name.
+		if isDistroSourceKeyed(purl) {
+			if src, _ := distroSourcePackage(purl); src != "" {
+				componentKey = src
+			} else if n := strings.TrimSpace(purl.Name); n != "" {
+				componentKey = n
+			}
+		}
 
 		// If K8s component mapping is available, try to map control-plane component → Go module prefix.
 		if k8sMap != nil {
@@ -1058,7 +1068,7 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 	case "deb", "package_type_dpkg", "package_type_deb":
 		// OSV loader stores ecosystem as distro (debian/ubuntu)
 		// Handle both "deb", "package_type_dpkg", and "package_type_deb" formats
-		if ns != "" {
+		if ns != "" && ns != "distroless" {
 			return ns
 		}
 		return "debian"
@@ -1144,6 +1154,15 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 			return "photon"
 		}
 		return "generic"
+	case "gem", "rubygems":
+		return "rubygems"
+	case "composer", "packagist":
+		return "packagist"
+	case "cargo", "crates.io":
+		return "cargo"
+	case "maven", "npm", "pypi", "nuget", "hex", "pub", "swift", "cocoapods", "hackage", "cran":
+		// Language ecosystems: the purl namespace is a group/scope, not an ecosystem.
+		return eco
 	default:
 		// For unknown ecosystems, try to use namespace or return as-is
 		if ns != "" {
@@ -1153,12 +1172,32 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 	}
 }
 
+// isDistroSourceKeyed reports whether OSV advisories for this package's ecosystem are
+// keyed by the distro source/origin package (Debian, Ubuntu, Alpine and its derivatives).
+func isDistroSourceKeyed(p *PURL) bool {
+	if p == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Ecosystem)) {
+	case "deb", "apk", "package_type_dpkg", "package_type_deb", "package_type_apk":
+		return true
+	}
+	return false
+}
+
 // effectiveVersionForComparison reconstructs distro qualifiers needed for precise
 // comparisons (e.g., Debian epoch carried in PURL qualifiers).
 func effectiveVersionForComparison(componentVersion string, purl *PURL) string {
 	v := strings.TrimSpace(componentVersion)
 	if purl == nil || purl.Qualifiers == nil {
 		return v
+	}
+	// Distro advisories carry source package versions; a binNMU binary (1.2-3+b1) or an
+	// Alpine subpackage can differ from its source version, so prefer the source one.
+	if isDistroSourceKeyed(purl) {
+		if _, srcVersion := distroSourcePackage(purl); srcVersion != "" {
+			v = srcVersion
+		}
 	}
 	eco := strings.ToLower(strings.TrimSpace(purl.Ecosystem))
 	if eco == "deb" || eco == "debian" || eco == "ubuntu" {

@@ -34,6 +34,9 @@ type Extractor struct {
 	syftMinPackageThreshold int
 	syftCache               *SyftResultCache
 	syftMaxRetries          int
+	// syftPrimary makes Syft the main cataloger (SBOM_ENGINE=syft, the default); the
+	// Fortuna parsers run only when Syft is missing or fails.
+	syftPrimary bool
 }
 
 // NewExtractor creates a new custom SBOM extractor.
@@ -75,7 +78,7 @@ func NewExtractor() *Extractor {
 		}
 	}
 
-	syftMaxPkgs := 1000
+	syftMaxPkgs := defaultMaxPackages
 	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_MAX_PACKAGES")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			syftMaxPkgs = n
@@ -110,12 +113,15 @@ func NewExtractor() *Extractor {
 		syftCache = NewSyftResultCache(syftCacheTTL, syftCacheMax)
 	}
 
+	// SBOM_ENGINE=fortuna keeps the Fortuna parsers as the main cataloger.
+	syftPrimary := !strings.EqualFold(strings.TrimSpace(os.Getenv("SBOM_ENGINE")), "fortuna")
+
 	var syftAdapter *SyftAdapter
-	if syftEnabled {
+	if syftEnabled || syftPrimary {
 		syftAdapter = NewSyftAdapter(logger, syftTimeout, syftMaxPkgs)
 		// If enabled but binary missing, warn once at startup.
 		if !syftAdapter.HasSyftBinary() {
-			logger.Printf("⚠️  WARNING: SBOM_USE_SYFT_FALLBACK is enabled but syft binary not found (bin=%q). Falling back to Fortuna-only.", syftAdapter.syftBin)
+			logger.Printf("⚠️  WARNING: syft binary not found (bin=%q); SBOMs use the Fortuna parsers only.", syftAdapter.syftBin)
 		}
 	}
 
@@ -142,6 +148,7 @@ func NewExtractor() *Extractor {
 		syftMinPackageThreshold: syftMinPkgs,
 		syftCache:               syftCache,
 		syftMaxRetries:          syftMaxRetries,
+		syftPrimary:             syftPrimary,
 	}
 }
 
@@ -223,6 +230,20 @@ func (e *Extractor) ExtractSBOMPinned(
 	var imageConfig *v1.ConfigFile
 	if cfg, err := img.ConfigFile(); err == nil {
 		imageConfig = cfg
+	}
+
+	// 2b. Syft (primary): catalog the same image offline; fall back to the parsers below.
+	if e.syftPrimary && e.syftAdapter != nil {
+		cat, err := e.extractWithSyft(ctx, fetchRef, img)
+		if err == nil {
+			sbom := e.rawSBOMFromSyft(cat, imageRef, imageDigest, imageConfig, sigVersion)
+			if e.cache != nil && cacheable {
+				_ = e.cache.Set(imageDigest, sigVersion, sbom)
+			}
+			e.logger.Printf("✅ Syft cataloged %d packages (OS %s %s) in %v", len(sbom.Packages), sbom.OS.Name, sbom.OS.Version, time.Since(start))
+			return sbom, nil
+		}
+		e.logger.Printf("⚠️  Syft catalog failed, falling back to Fortuna parsers: %v", err)
 	}
 
 	// 3. Get image layers
@@ -386,6 +407,7 @@ afterSyftFallback:
 		Confidence:       confidence,
 		SignatureVersion: sigVersion,
 		GoVersion:        goToolchain,
+		Engine:           "fortuna",
 	}
 
 	if e.cache != nil && cacheable && layerFailures == 0 {
@@ -394,6 +416,34 @@ afterSyftFallback:
 
 	e.logger.Printf("✅ Extracted %d unique packages in %v", len(deduped), time.Since(start))
 	return sbom, nil
+}
+
+// rawSBOMFromSyft turns a Syft catalog into the RawSBOM sent to Core.
+func (e *Extractor) rawSBOMFromSyft(cat *SyftCatalog, imageRef, imageDigest string, imageConfig *v1.ConfigFile, sigVersion string) *RawSBOM {
+	pkgs := e.deduplicate(cat.Packages)
+	sbomSource, confidence := "parsers", "high"
+	if len(pkgs) == 0 {
+		synthetic := e.syntheticPackageFromImage(imageRef, imageConfig)
+		pkgs = append(pkgs, synthetic)
+		sbomSource = "distroless-heuristic"
+		confidence = synthetic.Confidence
+	}
+	goToolchain := cat.GoVersion
+	if goToolchain == "" {
+		goToolchain = normalizeGoToolchainVersionForSBOM(goVersionFromImageConfig(imageConfig))
+	}
+	return &RawSBOM{
+		ImageName:        imageRef,
+		ImageDigest:      imageDigest,
+		OS:               cat.OS,
+		Packages:         pkgs,
+		ExtractedAt:      time.Now(),
+		SBOMSource:       sbomSource,
+		Confidence:       confidence,
+		SignatureVersion: sigVersion,
+		GoVersion:        goToolchain,
+		Engine:           "syft",
+	}
 }
 
 // ResolveDigest resolves an immutable image digest (sha256:...) without extracting layers.
@@ -720,6 +770,11 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 
 func (e *Extractor) shouldInvokeSyft(fortunaPkgCount int, osName string) bool {
 	if e == nil || e.syftAdapter == nil || !e.syftEnabled {
+		return false
+	}
+	// With Syft as the primary cataloger this path runs only after Syft already failed on
+	// the same image; a second run would only pull the image again from the registry.
+	if e.syftPrimary {
 		return false
 	}
 	osLower := strings.ToLower(strings.TrimSpace(osName))
@@ -1130,8 +1185,10 @@ func applySignatureHints(logger *log.Logger, pkgs []Package, imageTag string, im
 	return pkgs
 }
 
-// setOSPackagePURLs sets PURL pkg:deb/<distro>/name@version (or apk) for dpkg/apk packages
-// when PURL is empty, so Core matches OSV debian/ubuntu/alpine data (e.g. openssl 3.0.18-1~deb12u2).
+// setOSPackagePURLs sets spec PURLs for dpkg/apk packages that have none, in the same shape
+// Syft produces: the binary package name, the full version (Debian epoch included),
+// arch, distro (<id>-<version>) and upstream (the source package, which distro advisories
+// are keyed by), e.g. pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl.
 func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 	distro := strings.ToLower(strings.TrimSpace(osInfo.Name))
 	// Distroless is a flavour, not a distro: PURL namespaces must name the base distro
@@ -1139,42 +1196,64 @@ func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 	if d := strings.ToLower(strings.TrimSpace(osInfo.Distro)); d != "" && d != "unknown" {
 		distro = d
 	}
+	distroVersion := strings.TrimSpace(osInfo.Version)
+	if distroVersion == "unknown" {
+		distroVersion = ""
+	}
 	for i := range pkgs {
 		p := &pkgs[i]
 		if p.PURL != "" {
 			continue
 		}
+		var d string
 		switch p.Type {
 		case "deb":
-			d := distro
-			if d == "" || d == "distroless" {
+			d = distro
+			if d == "" || d == "distroless" || d == "unknown" {
 				d = "debian"
 			}
-			nameForPURL := p.Name
-			if sp := strings.TrimSpace(p.SourcePackage); sp != "" {
-				nameForPURL = sp
-			}
-			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "deb", p.Version)
-			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, normalizedVersion)
-			if ep := strings.TrimSpace(p.Epoch); ep != "" && ep != "0" {
-				p.PURL = appendPURLQualifier(p.PURL, "epoch", ep)
-			}
-			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
+			if ep := strings.TrimSpace(p.Epoch); ep != "" && ep != "0" && !strings.Contains(p.Version, ":") {
+				p.Version = ep + ":" + p.Version
 			}
 		case "apk":
-			d := distro
-			if d == "" || d == "distroless" {
+			d = distro
+			if d == "" || d == "distroless" || d == "unknown" {
 				d = "alpine"
 			}
-			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "apk", p.Version)
-			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, normalizedVersion)
-			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
+		default:
+			continue
+		}
+		p.PURL = "pkg:" + p.Type + "/" + d + "/" + purlEscape(p.Name) + "@" + purlEscape(p.Version)
+		if a := strings.TrimSpace(p.Arch); a != "" {
+			p.PURL = appendPURLQualifier(p.PURL, "arch", purlEscape(a))
+		}
+		if distroVersion != "" {
+			p.PURL = appendPURLQualifier(p.PURL, "distro", purlEscape(d+"-"+distroVersion))
+		}
+		if up := strings.TrimSpace(p.SourcePackage); up != "" && up != p.Name {
+			if sv := strings.TrimSpace(p.SourceVersion); sv != "" && sv != p.Version {
+				up += "@" + sv
 			}
+			p.PURL = appendPURLQualifier(p.PURL, "upstream", purlEscape(up))
 		}
 	}
 	return pkgs
+}
+
+// purlEscape percent-encodes everything outside the PURL-safe set (so ":" in a Debian
+// epoch and "+" in "+deb12u1" survive parsing).
+func purlEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '-' || c == '_' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 func appendPURLQualifier(purl, key, value string) string {
@@ -1259,6 +1338,8 @@ type Package struct {
 	Arch          string
 	SourcePackage string // for OS packages (e.g., deb Source: openssl for binary libssl3)
 	SourceVersion string // parsed from Source field when available
+	Licenses      []string
+	CPEs          []string
 	PURL          string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
 	Source        string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
 	Confidence    string // "low" | "medium" | "high"
@@ -1278,6 +1359,8 @@ type RawSBOM struct {
 	SignatureVersion string
 	// GoVersion: toolchain used to build Go binaries (buildinfo / GOLANG_VERSION). Sent to Core for stdlib CVE matching.
 	GoVersion string
+	// Engine is "syft" or "fortuna" (the built-in parsers).
+	Engine string
 }
 
 // goVersionFromImageConfig reads GOLANG_VERSION / GO_VERSION from OCI config (common on official golang images).

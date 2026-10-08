@@ -423,6 +423,13 @@ func normalizeEcosystem(ecosystem string) string {
 		return "alpine"
 	}
 
+	// OSV names these "Rocky Linux:8" / "AlmaLinux:9"; the matcher queries "rocky" / "alma".
+	if strings.HasPrefix(ecosystem, "rocky linux") {
+		return "rocky"
+	}
+	if strings.HasPrefix(ecosystem, "almalinux") {
+		return "alma"
+	}
 	// Map variations to standard names
 	switch ecosystem {
 	case "debian", "debian:*":

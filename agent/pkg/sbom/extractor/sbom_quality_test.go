@@ -32,13 +32,13 @@ func TestSetOSPackagePURLs_DistrolessUsesBaseDistro(t *testing.T) {
 	}
 
 	pkgs := setOSPackagePURLs([]Package{{Name: "libssl3", SourcePackage: "openssl", Version: "3.0.15-1~deb12u1", Arch: "amd64", Type: "deb"}}, osInfo)
-	if want := "pkg:deb/debian/openssl@3.0.15-1?arch=amd64"; pkgs[0].PURL != want {
+	if want := "pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl"; pkgs[0].PURL != want {
 		t.Fatalf("PURL = %q, want %q", pkgs[0].PURL, want)
 	}
 
 	// Distroless detected from OCI labels only (no os-release): still a Debian namespace.
 	pkgs = setOSPackagePURLs([]Package{{Name: "tzdata", Version: "2024a-0+deb12u1", Type: "deb"}}, OSInfo{Name: "distroless", Version: "unknown"})
-	if want := "pkg:deb/debian/tzdata@2024a-0"; pkgs[0].PURL != want {
+	if want := "pkg:deb/debian/tzdata@2024a-0%2Bdeb12u1"; pkgs[0].PURL != want {
 		t.Fatalf("PURL = %q, want %q", pkgs[0].PURL, want)
 	}
 }

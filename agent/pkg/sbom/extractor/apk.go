@@ -52,6 +52,14 @@ func (p *ApkParser) Parse(fs *Filesystem) ([]Package, error) {
 			currentPkg.Version = strings.TrimPrefix(line, "V:")
 		} else if strings.HasPrefix(line, "A:") {
 			currentPkg.Arch = strings.TrimPrefix(line, "A:")
+		} else if strings.HasPrefix(line, "o:") {
+			// Origin: the aports source package; Alpine advisories are keyed by it
+			// (libcrypto3 and libssl3 come from openssl).
+			currentPkg.SourcePackage = strings.TrimPrefix(line, "o:")
+		} else if strings.HasPrefix(line, "L:") {
+			if l := strings.TrimSpace(strings.TrimPrefix(line, "L:")); l != "" {
+				currentPkg.Licenses = []string{l}
+			}
 		}
 	}
 
