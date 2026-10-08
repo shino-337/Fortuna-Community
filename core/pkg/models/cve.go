@@ -46,9 +46,10 @@ type PackageVulnerability struct {
 	ID                    uint           `gorm:"primaryKey" json:"id"`
 	CVEID                 string         `gorm:"type:varchar(100);not null;index" json:"cveId"`
 	PackageName           string         `gorm:"type:varchar(255);not null;index" json:"packageName"`
-	PackageType           string         `gorm:"type:varchar(255)" json:"packageType"`     // deb, rpm, apk, etc.
-	Ecosystem             string         `gorm:"type:varchar(255);index" json:"ecosystem"` // debian, alpine, ubuntu, almalinux:8, etc.
-	AffectedRange         string         `gorm:"type:text" json:"affectedRange"`           // e.g., ">=0.6.18,<1.20.1"
+	PackageType           string         `gorm:"type:varchar(255)" json:"packageType"`                                   // deb, rpm, apk, etc.
+	Ecosystem             string         `gorm:"type:varchar(255);index" json:"ecosystem"`                               // debian, alpine, ubuntu, almalinux:8, etc.
+	EcosystemRelease      string         `gorm:"type:varchar(64);not null;default:''" json:"ecosystemRelease,omitempty"` // distro release ("12" for Debian:12); "" applies to every release
+	AffectedRange         string         `gorm:"type:text" json:"affectedRange"`                                         // e.g., ">=0.6.18,<1.20.1"
 	VersionStartIncluding string         `gorm:"type:varchar(255)" json:"versionStartIncluding"`
 	VersionStartExcluding string         `gorm:"type:varchar(255)" json:"versionStartExcluding"`
 	VersionEndIncluding   string         `gorm:"type:varchar(255)" json:"versionEndIncluding"`

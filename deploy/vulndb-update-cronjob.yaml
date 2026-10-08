@@ -1,0 +1,95 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
+---
+# Keeps downloaded OSV exports between runs, so each run downloads only the ecosystems whose
+# export changed and loads only the advisories that changed.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fortuna-vulndb-data
+  namespace: fortuna
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+# Downloads OSV advisories and loads what changed as a new CVE catalog generation. Core notices
+# the new generation and re-matches running workloads. Needs HTTPS egress to the OSV export
+# (or to core.vulnDBUpdate.osvBaseURL) and the database; no Kubernetes API access.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fortuna-vulndb-update
+  namespace: fortuna
+  labels:
+    app: fortuna-vulndb-update
+spec:
+  schedule: "23 */6 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app: fortuna-vulndb-update
+        spec:
+          automountServiceAccountToken: false
+          
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: vulndb-update
+              image: ghcr.io/shino-337/fortuna-community/fortuna-core:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/app/cve-loader-optimized"]
+              args:
+                - "-mode=sync"
+                - "-fetch-dir=/var/lib/fortuna/vulndb"
+                - "-ecosystems=Debian,Ubuntu,Alpine,Rocky Linux,AlmaLinux,Wolfi,Chainguard,Go,npm,PyPI,Maven,RubyGems,crates.io,NuGet,Packagist"
+                - "-osv-base-url=https://osv-vulnerabilities.storage.googleapis.com"
+                - "-keep-generations=2"
+                - "-workers=8"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: fortuna-secrets
+                      key: database-url
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/fortuna/vulndb
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: fortuna-vulndb-data
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi

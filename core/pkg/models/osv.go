@@ -27,6 +27,7 @@ type OSVPackage struct {
 	VulnID              string `gorm:"type:varchar(100);not null;index" json:"vulnId"`
 	Ecosystem           string `gorm:"type:varchar(50);not null;index" json:"ecosystem"`
 	PackageName         string `gorm:"type:varchar(255);not null;index" json:"packageName"`
+	EcosystemRelease    string `gorm:"type:varchar(64);not null;default:''" json:"ecosystemRelease,omitempty"` // "12" for Debian:12; "" when unscoped
 	CatalogGenerationID uint   `gorm:"index;column:catalog_generation_id" json:"catalogGenerationId,omitempty"`
 }
 

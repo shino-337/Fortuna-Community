@@ -96,13 +96,13 @@ type ParsedPackageVulnerability struct {
 	CVEID                 string
 	PackageName           string
 	Ecosystem             string
+	EcosystemRelease      string // distro release the range applies to ("12" for Debian:12); "" when unscoped
 	RangeType             string
 	VersionStartIncluding string
 	VersionStartExcluding string
 	VersionEndIncluding   string
 	VersionEndExcluding   string
 	FixedVersion          string
-	AffectedVersions      []string
 	DatabaseSpecific      string // JSON string
 }
 
@@ -181,92 +181,185 @@ func ConvertToCVE(osv *OSVVulnerability) (*ParsedCVE, error) {
 	}, nil
 }
 
-// ConvertToPackageVulnerabilities converts OSV affected packages to package vulnerabilities
+// ConvertToPackageVulnerabilities converts OSV affected packages to package vulnerabilities.
+//
+// Each OSV range is a sequence of events; an `introduced` event opens an affected interval and
+// the next `fixed` or `last_affected` closes it. An interval left open (no fix yet) is kept as
+// ">= introduced". Explicit `versions` are used when an entry has no SEMVER/ECOSYSTEM range.
+// Withdrawn advisories produce no rows. Distro releases (Debian:12, Alpine:v3.20, …) are kept in
+// EcosystemRelease so one release's ranges are not applied to another.
 func ConvertToPackageVulnerabilities(osv *OSVVulnerability) ([]*ParsedPackageVulnerability, error) {
 	var result []*ParsedPackageVulnerability
+	if osv == nil || strings.TrimSpace(osv.Withdrawn) != "" {
+		return result, nil
+	}
 
 	for _, affected := range osv.Affected {
 		// Skip if no package info
 		if affected.Package.Name == "" || affected.Package.Ecosystem == "" {
 			continue
 		}
+		base := ParsedPackageVulnerability{
+			CVEID:            osv.ID,
+			PackageName:      affected.Package.Name,
+			Ecosystem:        normalizeEcosystem(affected.Package.Ecosystem),
+			EcosystemRelease: OSVEcosystemRelease(affected.Package.Ecosystem),
+		}
+		if affected.DatabaseSpecific != nil {
+			dbSpecJSON, _ := json.Marshal(affected.DatabaseSpecific)
+			base.DatabaseSpecific = string(dbSpecJSON)
+		}
 
-		// Process version ranges
+		versionRanges := 0
 		for _, r := range affected.Ranges {
-			// Skip GIT ranges (not useful for version matching)
-			if r.Type == "GIT" {
+			rt := strings.ToUpper(strings.TrimSpace(r.Type))
+			// GIT ranges carry commit hashes, not package versions.
+			if rt != "SEMVER" && rt != "ECOSYSTEM" {
 				continue
 			}
-
-			for _, event := range r.Events {
-				// Create vulnerability entry for each fix event
-				if event.Fixed != "" {
-					pv := &ParsedPackageVulnerability{
-						CVEID:       osv.ID,
-						PackageName: affected.Package.Name,
-						Ecosystem:   normalizeEcosystem(affected.Package.Ecosystem),
-						RangeType:   r.Type,
-					}
-
-					// Set version ranges
-					if event.Introduced != "" {
-						if event.Introduced == "0" {
-							pv.VersionStartIncluding = "0"
-						} else {
-							pv.VersionStartIncluding = event.Introduced
-						}
-					}
-
-					pv.VersionEndExcluding = event.Fixed
-					pv.FixedVersion = event.Fixed
-
-					// Add affected versions if available
-					if len(affected.Versions) > 0 {
-						pv.AffectedVersions = affected.Versions
-					}
-
-					// Add database-specific data
-					if affected.DatabaseSpecific != nil {
-						dbSpecJSON, _ := json.Marshal(affected.DatabaseSpecific)
-						pv.DatabaseSpecific = string(dbSpecJSON)
-					}
-
-					result = append(result, pv)
+			versionRanges++
+			for _, iv := range OSVRangeIntervals(r.Events) {
+				pv := base
+				pv.RangeType = rt
+				pv.VersionStartIncluding = iv.Introduced
+				switch {
+				case iv.Fixed != "":
+					pv.VersionEndExcluding = iv.Fixed
+					pv.FixedVersion = iv.Fixed
+				case iv.LastAffected != "":
+					pv.VersionEndIncluding = iv.LastAffected
 				}
-
-				// Handle last_affected
-				if event.LastAffected != "" {
-					pv := &ParsedPackageVulnerability{
-						CVEID:       osv.ID,
-						PackageName: affected.Package.Name,
-						Ecosystem:   normalizeEcosystem(affected.Package.Ecosystem),
-						RangeType:   r.Type,
-					}
-
-					if event.Introduced != "" {
-						pv.VersionStartIncluding = event.Introduced
-					}
-					pv.VersionEndIncluding = event.LastAffected
-
-					result = append(result, pv)
-				}
+				result = append(result, &pv)
 			}
 		}
 
-		// If no ranges but has explicit versions, create entries for each
-		if len(affected.Ranges) == 0 && len(affected.Versions) > 0 {
-			pv := &ParsedPackageVulnerability{
-				CVEID:            osv.ID,
-				PackageName:      affected.Package.Name,
-				Ecosystem:        normalizeEcosystem(affected.Package.Ecosystem),
-				RangeType:        "EXPLICIT",
-				AffectedVersions: affected.Versions,
+		if versionRanges == 0 {
+			for _, v := range uniqueVersions(affected.Versions, maxExplicitVersionsPerPackage) {
+				pv := base
+				pv.RangeType = "EXPLICIT"
+				pv.VersionStartIncluding = v
+				pv.VersionEndIncluding = v
+				result = append(result, &pv)
 			}
-			result = append(result, pv)
 		}
 	}
 
 	return result, nil
+}
+
+// maxExplicitVersionsPerPackage bounds rows created from an OSV `versions` list.
+const maxExplicitVersionsPerPackage = 2000
+
+// OSVInterval is one affected interval of an OSV range.
+type OSVInterval struct {
+	Introduced   string // "0" when affected from the first version
+	Fixed        string
+	LastAffected string
+}
+
+// OSVRangeIntervals turns OSV range events into intervals. Events are applied in order: an
+// `introduced` opens an interval and the next `fixed` or `last_affected` closes it. A trailing
+// open interval (no fix yet) is returned with Fixed and LastAffected empty.
+func OSVRangeIntervals(events []OSVEvent) []OSVInterval {
+	var out []OSVInterval
+	open := false
+	introduced := ""
+	for _, ev := range events {
+		switch {
+		case strings.TrimSpace(ev.Introduced) != "":
+			if open {
+				// Two introduced events in a row: the first interval never closed.
+				out = append(out, OSVInterval{Introduced: introduced})
+			}
+			introduced = strings.TrimSpace(ev.Introduced)
+			open = true
+		case strings.TrimSpace(ev.Fixed) != "":
+			out = append(out, OSVInterval{Introduced: introducedOrZero(introduced, open), Fixed: strings.TrimSpace(ev.Fixed)})
+			open, introduced = false, ""
+		case strings.TrimSpace(ev.LastAffected) != "":
+			out = append(out, OSVInterval{Introduced: introducedOrZero(introduced, open), LastAffected: strings.TrimSpace(ev.LastAffected)})
+			open, introduced = false, ""
+		}
+	}
+	if open {
+		out = append(out, OSVInterval{Introduced: introduced})
+	}
+	return out
+}
+
+func introducedOrZero(introduced string, open bool) string {
+	if open && introduced != "" {
+		return introduced
+	}
+	return "0"
+}
+
+func uniqueVersions(versions []string, max int) []string {
+	seen := make(map[string]struct{}, len(versions))
+	out := make([]string, 0, len(versions))
+	for _, v := range versions {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+// OSVEcosystemRelease returns the distro release an OSV ecosystem string is scoped to, normalized
+// the way SBOM components report it: "Debian:12" → "12", "Alpine:v3.20" → "3.20",
+// "Ubuntu:22.04:LTS" and "Ubuntu:Pro:22.04:LTS" → "22.04", "Rocky Linux:8" → "8",
+// "AlmaLinux:9" → "9". Ecosystems without a release, or with a format we do not parse
+// (Red Hat CPE-style suffixes), return "".
+func OSVEcosystemRelease(ecosystem string) string {
+	e := strings.TrimSpace(ecosystem)
+	name, rest, ok := strings.Cut(e, ":")
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "debian", "rocky linux", "almalinux":
+		return NormalizeDistroRelease(strings.ToLower(name), rest)
+	case "alpine":
+		return NormalizeDistroRelease("alpine", rest)
+	case "ubuntu":
+		for _, part := range strings.Split(rest, ":") {
+			part = strings.TrimSpace(part)
+			if part != "" && part[0] >= '0' && part[0] <= '9' {
+				return NormalizeDistroRelease("ubuntu", part)
+			}
+		}
+	}
+	return ""
+}
+
+// NormalizeDistroRelease reduces a distro version to the granularity advisories are published
+// at: the major version for Debian, Rocky and Alma ("12.5" → "12"), major.minor for Alpine and
+// Ubuntu ("v3.20.3" → "3.20", "22.04" → "22.04"). Unknown distros return the trimmed version.
+func NormalizeDistroRelease(distro, version string) string {
+	v := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(version)), "v")
+	if v == "" {
+		return ""
+	}
+	parts := strings.Split(v, ".")
+	switch strings.ToLower(strings.TrimSpace(distro)) {
+	case "debian", "rocky", "rocky linux", "alma", "almalinux":
+		return parts[0]
+	case "alpine", "ubuntu":
+		if len(parts) >= 2 {
+			return parts[0] + "." + parts[1]
+		}
+		return parts[0]
+	}
+	return v
 }
 
 // parseCVSS extracts CVSS score and severity from OSV severity data

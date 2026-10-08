@@ -15,6 +15,16 @@ groups:
           summary: "Risk Center: high number of critical insights"
           description: "More than 50 critical active insights. Review Risk Center for critical findings."
 
+      # Vulnerability database not updated (fortuna-vulndb-update CronJob failing or disabled)
+      - alert: FortunaCVECatalogStale
+        expr: max(fortuna_cve_catalog_age_seconds) > 172800 or max(fortuna_cve_catalog_age_seconds) < 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CVE catalog is older than 48 hours or missing"
+          description: "No new CVE catalog generation was activated in 48 hours. Check the fortuna-vulndb-update CronJob."
+
       # High insight creation rate (counter)
       - alert: RiskCenterHighInsightCreationRate
         expr: sum(rate(fortuna_insights_created_total[5m])) > 2

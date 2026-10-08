@@ -436,6 +436,17 @@ func main() {
 
 	// Initialize gRPC server
 	log.Printf("[Main] Creating gRPC server with TLS_ENABLED=%v", cfg.TLSEnabled)
+	// Re-match running SBOMs when the scheduled vulnerability database update activates a new
+	// CVE catalog generation, and export catalog freshness metrics.
+	if every := worker.CVERematchInterval(); every > 0 {
+		rematcher := &worker.CVECatalogRematcher{DB: db, Logger: log.Default()}
+		if natsClient != nil {
+			rematcher.Publish = natsClient.Publish
+		}
+		go rematcher.Run(ctx, every)
+		log.Printf("[Main] ✅ CVE catalog re-match check every %v (FORTUNA_CVE_REMATCH_INTERVAL)", every)
+	}
+
 	grpcServer, err := grpc.NewServer(cfg, db, natsClient, clusterLimiter)
 	if err != nil {
 		log.Fatalf("Failed to create gRPC server: %v", err)

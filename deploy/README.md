@@ -28,6 +28,7 @@ The plain manifests are rendered from the chart (`scripts/build/render-manifests
 | `infrastructure/network-policies.yaml` | Limits NATS and PostgreSQL ingress to Core, denies ingress to Agents |
 | `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/operations/WEBHOOK.md)) |
 | `risk-evaluation-cronjob.yaml` | Optional CronJob that triggers historical risk evaluation every 6 hours |
+| `vulndb-update-cronjob.yaml` | CronJob and PVC that download OSV advisories every 6 hours and load what changed ([configuration](../docs/reference/CONFIGURATION.md#scheduled-vulnerability-database-update)) |
 
 Other files, maintained by hand:
 

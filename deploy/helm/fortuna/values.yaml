@@ -96,6 +96,45 @@ core:
     # Service account the job signs in as. Core creates it with only
     # risk.evaluate; its password is risk-evaluator-password in fortuna-secrets.
     username: fortuna-risk-evaluator
+  # Scheduled vulnerability database update: downloads OSV advisories for these ecosystems,
+  # loads what changed as a new CVE catalog generation, and Core re-matches running workloads.
+  # Needs HTTPS egress to osvBaseURL; point it at an internal mirror for air-gapped clusters.
+  vulnDBUpdate:
+    enabled: true
+    schedule: "23 */6 * * *"
+    osvBaseURL: https://osv-vulnerabilities.storage.googleapis.com
+    ecosystems:
+      - Debian
+      - Ubuntu
+      - Alpine
+      - Rocky Linux
+      - AlmaLinux
+      - Wolfi
+      - Chainguard
+      - Go
+      - npm
+      - PyPI
+      - Maven
+      - RubyGems
+      - crates.io
+      - NuGet
+      - Packagist
+    # Active catalog generations kept; older ones are retired and their rows deleted.
+    keepGenerations: 2
+    workers: 8
+    activeDeadlineSeconds: 7200
+    persistence:
+      # Without persistence every run downloads and reloads every ecosystem.
+      enabled: true
+      size: 8Gi
+      storageClassName: ""
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 200m
+      limits:
+        memory: 2Gi
+        cpu: "1"
 
 agent:
   enabled: true

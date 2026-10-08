@@ -11,6 +11,7 @@ type Document struct {
 
 	Published string `json:"published,omitempty"`
 	Modified  string `json:"modified,omitempty"`
+	Withdrawn string `json:"withdrawn,omitempty"`
 
 	Severity []Severity `json:"severity,omitempty"`
 	Affected []Affected `json:"affected,omitempty"`
@@ -22,8 +23,9 @@ type Severity struct {
 }
 
 type Affected struct {
-	Package Package `json:"package,omitempty"`
-	Ranges  []Range `json:"ranges,omitempty"`
+	Package  Package  `json:"package,omitempty"`
+	Ranges   []Range  `json:"ranges,omitempty"`
+	Versions []string `json:"versions,omitempty"`
 }
 
 type Package struct {

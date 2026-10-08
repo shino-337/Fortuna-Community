@@ -10,6 +10,7 @@ import (
 
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/cve/loader"
 	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
@@ -375,8 +376,17 @@ func (m *Matcher) MatchSBOM(
 				if component == nil || purl == nil {
 					continue
 				}
+				release := componentDistroRelease(ecosystem, purl, sbom)
+				seenCVE := make(map[string]bool)
 				// Check version constraints for each CVE
 				for _, cveData := range cves {
+					if !cveAppliesToRelease(ecosystem, cveData.Release, release) {
+						recordMatcherVulnerabilitySkip("release_mismatch", ecosystem)
+						continue
+					}
+					if seenCVE[cveData.ID] {
+						continue
+					}
 					if !isCVEApplicableToPackageArch(cveData, purl) {
 						recordMatcherVulnerabilitySkip("arch_mismatch", ecosystem)
 						continue
@@ -441,6 +451,7 @@ func (m *Matcher) MatchSBOM(
 
 					matches = append(matches, match)
 					matchCountByComponent[compKey]++
+					seenCVE[cveData.ID] = true
 				}
 			}
 		}
@@ -1230,4 +1241,54 @@ func isCVEApplicableToPackageArch(cveData *cve.CVE, purl *PURL) bool {
 		}
 	}
 	return false
+}
+
+// releaseScopedEcosystems are the OSV ecosystems whose advisories are published per release.
+var releaseScopedEcosystems = map[string]bool{"debian": true, "ubuntu": true, "alpine": true, "rocky": true, "alma": true}
+
+// componentDistroRelease returns the distro release of a component for release-scoped
+// ecosystems: from the purl `distro` qualifier (debian-12, alpine-3.20.3, ubuntu-22.04), else
+// from the SBOM's OS version when the SBOM OS is that distro. "" when unknown.
+func componentDistroRelease(ecosystem string, purl *PURL, sbom *models.SBOM) string {
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	if !releaseScopedEcosystems[eco] {
+		return ""
+	}
+	if purl != nil && purl.Qualifiers != nil {
+		if d := strings.TrimSpace(purl.Qualifiers["distro"]); d != "" {
+			if i := strings.LastIndexByte(d, '-'); i > 0 {
+				if v := loader.NormalizeDistroRelease(eco, d[i+1:]); isNumericRelease(v) {
+					return v
+				}
+			}
+		}
+	}
+	if sbom != nil && strings.Contains(strings.ToLower(sbom.OSName), eco) {
+		if v := loader.NormalizeDistroRelease(eco, sbom.OSVersion); isNumericRelease(v) {
+			return v
+		}
+	}
+	return ""
+}
+
+// cveAppliesToRelease reports whether an advisory range published for advisoryRelease applies to
+// a component of componentRelease. Unscoped ranges and components of unknown release always apply.
+func cveAppliesToRelease(ecosystem, advisoryRelease, componentRelease string) bool {
+	advisoryRelease = strings.TrimSpace(advisoryRelease)
+	if advisoryRelease == "" || componentRelease == "" {
+		return true
+	}
+	return loader.NormalizeDistroRelease(ecosystem, advisoryRelease) == componentRelease
+}
+
+func isNumericRelease(v string) bool {
+	if v == "" {
+		return false
+	}
+	for _, r := range v {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return true
 }

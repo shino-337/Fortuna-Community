@@ -155,7 +155,7 @@ With the bootstrap password, the response contains `"mustChangePassword": true`,
 Vulnerability matching needs the CVE catalog and Agent SBOMs, and runtime findings need a sensor. Agents send SBOMs over gRPC, which Core accepts only with per-Agent certificates; set them up with [per-Agent mTLS](../../deploy/scoped-agent-credentials/MTLS.md), otherwise vulnerability views stay empty.
 
 ```bash
-./scripts/utils/load-cve-data.sh            # large download (about 1.2 GB)
+./scripts/utils/load-cve-data.sh            # optional first load (about 1.2 GB); the fortuna-vulndb-update CronJob keeps it current
 ./scripts/deploy/install-falco-fortuna.sh   # Falco with Fortuna settings
 kubectl -n fortuna rollout restart daemonset/fortuna-agent
 ```
