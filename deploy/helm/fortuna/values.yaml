@@ -109,6 +109,7 @@ core:
       - Alpine
       - Rocky Linux
       - AlmaLinux
+      - Red Hat
       - Wolfi
       - Chainguard
       - Go
@@ -126,7 +127,9 @@ core:
     persistence:
       # Without persistence every run downloads and reloads every ecosystem.
       enabled: true
-      size: 8Gi
+      # The default ecosystems unpack to ~12 GiB (Ubuntu ~7.3 GiB, Chainguard ~2.7 GiB, Wolfi
+      # ~1 GiB), plus one archive (up to ~0.9 GiB) while it is extracted.
+      size: 24Gi
       storageClassName: ""
     resources:
       requests:

@@ -97,3 +97,18 @@ func TestCVECatalogRematcherQueuesOncePerGeneration(t *testing.T) {
 		t.Fatalf("rematch marker = %d, want %d", st.Version, g1+1)
 	}
 }
+
+func TestCanonicalCVEID(t *testing.T) {
+	for in, want := range map[string]string{
+		"DEBIAN-CVE-2024-3094":  "CVE-2024-3094",
+		"ubuntu-cve-2021-44228": "CVE-2021-44228",
+		"ALPINE-CVE-2023-12345": "CVE-2023-12345",
+		"CVE-2024-3094":         "CVE-2024-3094",
+		"GHSA-xxxx-yyyy-zzzz":   "GHSA-XXXX-YYYY-ZZZZ",
+		"RHSA-2026:76130":       "RHSA-2026:76130",
+	} {
+		if got := canonicalCVEID(in); got != want {
+			t.Errorf("canonicalCVEID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

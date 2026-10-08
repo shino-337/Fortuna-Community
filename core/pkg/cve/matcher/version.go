@@ -7,4 +7,4 @@ package matcher
 // decoding; maven/npm/gem/composer/cargo queried in their own ecosystems.
 // v1.5: distro advisory ranges scoped to the component's release; open (unfixed) ranges and
 // explicit OSV versions matched; withdrawn advisories dropped.
-const ResolverVersion = "v1.5"
+const ResolverVersion = "v1.6"

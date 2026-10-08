@@ -4,6 +4,7 @@ package feed
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -18,15 +19,17 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
-// DefaultOSVBaseURL is the public OSV export bucket; each ecosystem has <base>/<Ecosystem>/all.zip.
+// DefaultOSVBaseURL is the public OSV export bucket; each ecosystem has <base>/<Ecosystem>/all.zip,
+// <base>/<Ecosystem>/modified_id.csv ("<modified>,<ID>" per advisory) and <base>/<Ecosystem>/<ID>.json.
 const DefaultOSVBaseURL = "https://osv-vulnerabilities.storage.googleapis.com"
 
 // DefaultOSVEcosystems are the OSV ecosystems Fortuna SBOMs produce packages for.
 var DefaultOSVEcosystems = []string{
-	"Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux", "Wolfi", "Chainguard",
+	"Debian", "Ubuntu", "Alpine", "Rocky Linux", "AlmaLinux", "Red Hat", "Wolfi", "Chainguard",
 	"Go", "npm", "PyPI", "Maven", "RubyGems", "crates.io", "NuGet", "Packagist",
 }
 
@@ -38,13 +41,24 @@ const (
 	// advisories between two runs.
 	minIDsForShrinkCheck = 100
 	advisoryDirName      = "advisories"
+	maxIndexBytes        = 256 << 20 // modified_id.csv; Chainguard's is ~55 MiB
+	// maxIncrementalFetches: past this many changed advisories one archive download is cheaper.
+	maxIncrementalFetches = 5000
+	incrementalWorkers    = 8
+	// cursorOverlap re-reads advisories modified shortly before the last cursor, in case the
+	// export published them late; unchanged files are not rewritten.
+	cursorOverlap = time.Hour
 )
 
-var advisoryFileRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.json$`)
+// advisoryFileRE accepts flat OSV advisory file names; Red Hat, AlmaLinux and Rocky IDs contain
+// a colon (RHSA-2026:1234).
+var advisoryFileRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,200}\.json$`)
 
 // OSVFetcher mirrors OSV ecosystem exports into Dir/advisories, one <ID>.json per advisory.
-// Unchanged advisories are not rewritten, so the loader's mtime/size tracking only reprocesses
-// what changed; advisories that disappear from an ecosystem's export are removed.
+// The first run downloads each ecosystem's all.zip; later runs read its modified_id.csv and
+// download only the advisories modified since, falling back to the archive when too many
+// changed. Unchanged advisories are not rewritten, so the loader's mtime/size tracking only
+// reprocesses what changed; advisories that disappear from an ecosystem's export are removed.
 type OSVFetcher struct {
 	BaseURL      string
 	Dir          string
@@ -69,6 +83,9 @@ type ecosystemState struct {
 	LastModified string    `json:"lastModified,omitempty"`
 	FetchedAt    time.Time `json:"fetchedAt"`
 	IDs          []string  `json:"ids"`
+	// Cursor is the newest advisory "modified" time seen; IndexETag the last modified_id.csv ETag.
+	Cursor    time.Time `json:"cursor,omitempty"`
+	IndexETag string    `json:"indexETag,omitempty"`
 }
 
 type feedState struct {
@@ -135,15 +152,41 @@ func Failed(results []FetchResult) []string {
 	return out
 }
 
-func (f *OSVFetcher) fetchEcosystem(ctx context.Context, eco string, state *feedState) FetchResult {
-	res := FetchResult{Ecosystem: eco}
-	prev := state.Ecosystems[eco]
-
-	base := strings.TrimRight(f.BaseURL, "/")
-	if base == "" {
-		base = DefaultOSVBaseURL
+func (f *OSVFetcher) baseURL() string {
+	if base := strings.TrimRight(f.BaseURL, "/"); base != "" {
+		return base
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/"+url.PathEscape(eco)+"/all.zip", nil)
+	return DefaultOSVBaseURL
+}
+
+func (f *OSVFetcher) client() *http.Client {
+	if f.Client != nil {
+		return f.Client
+	}
+	return &http.Client{Timeout: 30 * time.Minute}
+}
+
+func (f *OSVFetcher) maxFileBytes() int64 {
+	if f.MaxFileBytes > 0 {
+		return f.MaxFileBytes
+	}
+	return defaultMaxFileBytes
+}
+
+func (f *OSVFetcher) fetchEcosystem(ctx context.Context, eco string, state *feedState) FetchResult {
+	prev := state.Ecosystems[eco]
+	if prev != nil && !prev.Cursor.IsZero() {
+		if res, ok := f.fetchIncremental(ctx, eco, prev, state); ok {
+			return res
+		}
+	}
+	return f.fetchArchive(ctx, eco, prev, state)
+}
+
+// fetchArchive downloads <eco>/all.zip and syncs every advisory in it.
+func (f *OSVFetcher) fetchArchive(ctx context.Context, eco string, prev *ecosystemState, state *feedState) FetchResult {
+	res := FetchResult{Ecosystem: eco}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL()+"/"+url.PathEscape(eco)+"/all.zip", nil)
 	if err != nil {
 		res.Err = err
 		return res
@@ -156,11 +199,7 @@ func (f *OSVFetcher) fetchEcosystem(ctx context.Context, eco string, state *feed
 			req.Header.Set("If-Modified-Since", prev.LastModified)
 		}
 	}
-	client := f.Client
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Minute}
-	}
-	resp, err := client.Do(req)
+	resp, err := f.client().Do(req)
 	if err != nil {
 		res.Err = fmt.Errorf("download: %w", err)
 		return res
@@ -197,71 +236,292 @@ func (f *OSVFetcher) fetchEcosystem(ctx context.Context, eco string, state *feed
 		return res
 	}
 
-	ids, written, err := f.extract(tmp, n)
+	ids, written, cursor, err := f.extract(tmp, n)
 	if err != nil {
 		res.Err = err
 		return res
 	}
 	res.Advisories = len(ids)
 	res.Written = written
-	// A truncated or broken export must not delete half the catalog.
-	if prev != nil && len(prev.IDs) >= minIDsForShrinkCheck && len(ids) < len(prev.IDs)/2 {
-		res.Err = fmt.Errorf("export has %d advisories, previous had %d; keeping the previous ones", len(ids), len(prev.IDs))
+	if err := checkShrink(prev, len(ids)); err != nil {
+		res.Err = err
 		return res
 	}
-
-	// Remove advisories this ecosystem no longer exports, unless another ecosystem still does.
-	keep := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		keep[id] = true
-	}
-	if prev != nil {
-		for _, id := range prev.IDs {
-			if keep[id] || exportedByOther(state, eco, id) {
-				continue
-			}
-			if err := os.Remove(filepath.Join(f.AdvisoryDir(), id+".json")); err == nil {
-				res.Removed++
-			} else if !errors.Is(err, os.ErrNotExist) {
-				res.Err = fmt.Errorf("remove %s: %w", id, err)
-				return res
-			}
-		}
+	if res.Removed, err = f.removeUnexported(state, eco, prev, ids); err != nil {
+		res.Err = err
+		return res
 	}
 	state.Ecosystems[eco] = &ecosystemState{
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		FetchedAt:    time.Now().UTC(),
 		IDs:          ids,
+		Cursor:       cursor,
 	}
 	return res
 }
 
-func exportedByOther(state *feedState, eco, id string) bool {
+// fetchIncremental reads <eco>/modified_id.csv and downloads the advisories modified since the
+// last cursor. ok=false asks for an archive download instead (too many changes, or no usable
+// index); a failure is returned with ok=true so the previous files are kept.
+func (f *OSVFetcher) fetchIncremental(ctx context.Context, eco string, prev *ecosystemState, state *feedState) (FetchResult, bool) {
+	res := FetchResult{Ecosystem: eco}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL()+"/"+url.PathEscape(eco)+"/modified_id.csv", nil)
+	if err != nil {
+		res.Err = err
+		return res, true
+	}
+	if prev.IndexETag != "" {
+		req.Header.Set("If-None-Match", prev.IndexETag)
+	}
+	resp, err := f.client().Do(req)
+	if err != nil {
+		res.Err = fmt.Errorf("index: %w", err)
+		return res, true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotModified {
+		res.NotModified = true
+		res.Advisories = len(prev.IDs)
+		return res, true
+	}
+	if resp.StatusCode != http.StatusOK {
+		f.logf("OSV %s: index HTTP %d, downloading the archive", eco, resp.StatusCode)
+		return res, false
+	}
+	entries, err := parseModifiedIndex(io.LimitReader(resp.Body, maxIndexBytes+1))
+	if err != nil {
+		res.Err = fmt.Errorf("index: %w", err)
+		return res, true
+	}
+
+	ids := make([]string, 0, len(entries))
+	var changed []string
+	cursor := prev.Cursor
+	since := prev.Cursor.Add(-cursorOverlap)
+	for _, e := range entries {
+		ids = append(ids, e.id)
+		if e.modified.After(since) {
+			changed = append(changed, e.id)
+		}
+		if e.modified.After(cursor) {
+			cursor = e.modified
+		}
+	}
+	sort.Strings(ids)
+	if err := checkShrink(prev, len(ids)); err != nil {
+		res.Err = err
+		return res, true
+	}
+	if len(changed) > maxIncrementalFetches {
+		f.logf("OSV %s: %d advisories changed, downloading the archive", eco, len(changed))
+		return res, false
+	}
+	written, err := f.fetchAdvisories(ctx, eco, changed)
+	if err != nil {
+		res.Err = err
+		return res, true
+	}
+	res.Advisories = len(ids)
+	res.Written = written
+	if res.Removed, err = f.removeUnexported(state, eco, prev, ids); err != nil {
+		res.Err = err
+		return res, true
+	}
+	next := *prev
+	next.FetchedAt = time.Now().UTC()
+	next.IDs = ids
+	next.Cursor = cursor
+	next.IndexETag = resp.Header.Get("ETag")
+	state.Ecosystems[eco] = &next
+	return res, true
+}
+
+type indexEntry struct {
+	modified time.Time
+	id       string
+}
+
+// parseModifiedIndex reads "<RFC 3339 modified>,<ID>" lines; lines with an unusable ID are skipped.
+func parseModifiedIndex(r io.Reader) ([]indexEntry, error) {
+	var out []indexEntry
+	var read int64
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 64<<10)
+	for sc.Scan() {
+		line := sc.Text()
+		read += int64(len(line)) + 1
+		if read > maxIndexBytes {
+			return nil, fmt.Errorf("larger than %d bytes", maxIndexBytes)
+		}
+		ts, id, ok := strings.Cut(strings.TrimSpace(line), ",")
+		if !ok || !advisoryFileRE.MatchString(id+".json") {
+			continue
+		}
+		modified, err := time.Parse(time.RFC3339Nano, ts)
+		if err != nil {
+			continue
+		}
+		out = append(out, indexEntry{modified: modified, id: id})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// fetchAdvisories downloads <eco>/<ID>.json for each id. An advisory that is gone (404) is
+// skipped; any other failure fails the ecosystem so its cursor does not advance.
+func (f *OSVFetcher) fetchAdvisories(ctx context.Context, eco string, ids []string) (int, error) {
+	var (
+		mu       sync.Mutex
+		written  int
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	work := make(chan string)
+	for i := 0; i < incrementalWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range work {
+				changed, err := f.fetchAdvisory(ctx, eco, id)
+				mu.Lock()
+				if err != nil && firstErr == nil {
+					firstErr = fmt.Errorf("%s: %w", id, err)
+				}
+				if changed {
+					written++
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, id := range ids {
+		mu.Lock()
+		failed := firstErr != nil
+		mu.Unlock()
+		if failed || ctx.Err() != nil {
+			break
+		}
+		work <- id
+	}
+	close(work)
+	wg.Wait()
+	if firstErr == nil {
+		firstErr = ctx.Err()
+	}
+	return written, firstErr
+}
+
+func (f *OSVFetcher) fetchAdvisory(ctx context.Context, eco, id string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL()+"/"+url.PathEscape(eco)+"/"+url.PathEscape(id)+".json", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := f.client().Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		f.logf("OSV %s: %s listed but not found, skipping", eco, id)
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	max := f.maxFileBytes()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return false, err
+	}
+	if int64(len(data)) > max {
+		f.logf("OSV %s: skipping %s (larger than %d bytes)", eco, id, max)
+		return false, nil
+	}
+	if docID, _, err := advisoryHeader(data); err != nil || docID != id {
+		f.logf("OSV %s: skipping %s (id does not match)", eco, id)
+		return false, nil
+	}
+	return writeIfChanged(filepath.Join(f.AdvisoryDir(), id+".json"), data)
+}
+
+// advisoryHeader returns an advisory's id and modified time (zero when missing or malformed).
+func advisoryHeader(data []byte) (string, time.Time, error) {
+	var doc struct {
+		ID       string `json:"id"`
+		Modified string `json:"modified"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return "", time.Time{}, err
+	}
+	modified, _ := time.Parse(time.RFC3339Nano, doc.Modified)
+	return doc.ID, modified, nil
+}
+
+// checkShrink rejects an export that lost more than half its advisories: a truncated or broken
+// export must not delete half the catalog.
+func checkShrink(prev *ecosystemState, n int) error {
+	if prev != nil && len(prev.IDs) >= minIDsForShrinkCheck && n < len(prev.IDs)/2 {
+		return fmt.Errorf("export has %d advisories, previous had %d; keeping the previous ones", n, len(prev.IDs))
+	}
+	return nil
+}
+
+// removeUnexported deletes advisories this ecosystem no longer exports, unless another
+// ecosystem still does.
+func (f *OSVFetcher) removeUnexported(state *feedState, eco string, prev *ecosystemState, ids []string) (int, error) {
+	if prev == nil {
+		return 0, nil
+	}
+	keep := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		keep[id] = true
+	}
+	removed := 0
+	var others map[string]bool
+	for _, id := range prev.IDs {
+		if keep[id] {
+			continue
+		}
+		if others == nil {
+			others = exportedByOthers(state, eco)
+		}
+		if others[id] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(f.AdvisoryDir(), id+".json")); err == nil {
+			removed++
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return removed, fmt.Errorf("remove %s: %w", id, err)
+		}
+	}
+	return removed, nil
+}
+
+func exportedByOthers(state *feedState, eco string) map[string]bool {
+	out := map[string]bool{}
 	for other, st := range state.Ecosystems {
 		if other == eco || st == nil {
 			continue
 		}
-		for _, x := range st.IDs {
-			if x == id {
-				return true
-			}
+		for _, id := range st.IDs {
+			out[id] = true
 		}
 	}
-	return false
+	return out
 }
 
 // extract writes each advisory of the archive to AdvisoryDir/<ID>.json. Entries that are not a
 // flat <ID>.json, exceed the size limit, or whose "id" does not match the file name are skipped.
-func (f *OSVFetcher) extract(r io.ReaderAt, size int64) (ids []string, written int, err error) {
+// It also returns the newest "modified" time, the cursor for the next incremental fetch.
+func (f *OSVFetcher) extract(r io.ReaderAt, size int64) (ids []string, written int, cursor time.Time, err error) {
 	zr, err := zip.NewReader(r, size)
 	if err != nil {
-		return nil, 0, fmt.Errorf("open archive: %w", err)
+		return nil, 0, cursor, fmt.Errorf("open archive: %w", err)
 	}
-	maxFile := f.MaxFileBytes
-	if maxFile <= 0 {
-		maxFile = defaultMaxFileBytes
-	}
+	maxFile := f.maxFileBytes()
 	seen := make(map[string]bool, len(zr.File))
 	for _, zf := range zr.File {
 		name := zf.Name
@@ -274,13 +534,11 @@ func (f *OSVFetcher) extract(r io.ReaderAt, size int64) (ids []string, written i
 		}
 		data, err := readZipFile(zf, maxFile)
 		if err != nil {
-			return nil, 0, fmt.Errorf("read %s: %w", name, err)
+			return nil, 0, cursor, fmt.Errorf("read %s: %w", name, err)
 		}
 		id := strings.TrimSuffix(name, ".json")
-		var doc struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(data, &doc); err != nil || doc.ID != id {
+		docID, modified, err := advisoryHeader(data)
+		if err != nil || docID != id {
 			f.logf("OSV: skipping %s (id does not match file name)", name)
 			continue
 		}
@@ -289,16 +547,19 @@ func (f *OSVFetcher) extract(r io.ReaderAt, size int64) (ids []string, written i
 		}
 		seen[id] = true
 		ids = append(ids, id)
+		if modified.After(cursor) {
+			cursor = modified
+		}
 		changed, err := writeIfChanged(filepath.Join(f.AdvisoryDir(), name), data)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, cursor, err
 		}
 		if changed {
 			written++
 		}
 	}
 	sort.Strings(ids)
-	return ids, written, nil
+	return ids, written, cursor, nil
 }
 
 func readZipFile(zf *zip.File, max int64) ([]byte, error) {

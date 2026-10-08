@@ -1092,7 +1092,7 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 		return "alpine"
 	case "rpm", "package_type_rpm":
 		if ns != "" {
-			return ns
+			return rpmNamespaceEcosystem(ns)
 		}
 		// Map SBOM OS to OSV-style ecosystem keys when namespace is missing (syft/rpm often omit ns).
 		if strings.Contains(osName, "red hat") || strings.Contains(osName, "rhel") {
@@ -1184,7 +1184,7 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 }
 
 // isDistroSourceKeyed reports whether OSV advisories for this package's ecosystem are
-// keyed by the distro source/origin package (Debian, Ubuntu, Alpine and its derivatives).
+// keyed by the distro source/origin package (Debian, Ubuntu, Alpine and its derivatives, Rocky Linux).
 func isDistroSourceKeyed(p *PURL) bool {
 	if p == nil {
 		return false
@@ -1192,6 +1192,9 @@ func isDistroSourceKeyed(p *PURL) bool {
 	switch strings.ToLower(strings.TrimSpace(p.Ecosystem)) {
 	case "deb", "apk", "package_type_dpkg", "package_type_deb", "package_type_apk":
 		return true
+	case "rpm", "package_type_rpm":
+		// Rocky Linux advisories name the source rpm (vim), not the binaries (vim-minimal).
+		return rpmNamespaceEcosystem(strings.ToLower(strings.TrimSpace(p.Namespace))) == "rocky"
 	}
 	return false
 }
@@ -1244,7 +1247,25 @@ func isCVEApplicableToPackageArch(cveData *cve.CVE, purl *PURL) bool {
 }
 
 // releaseScopedEcosystems are the OSV ecosystems whose advisories are published per release.
-var releaseScopedEcosystems = map[string]bool{"debian": true, "ubuntu": true, "alpine": true, "rocky": true, "alma": true}
+var releaseScopedEcosystems = map[string]bool{"debian": true, "ubuntu": true, "alpine": true, "rocky": true, "alma": true, "redhat": true}
+
+// rpmNamespaceEcosystem maps an rpm purl namespace (the os-release ID Syft uses: almalinux, rhel,
+// ol, amzn…) to the ecosystem key the OSV loaders store.
+func rpmNamespaceEcosystem(ns string) string {
+	switch ns {
+	case "almalinux":
+		return "alma"
+	case "rocky-linux":
+		return "rocky"
+	case "rhel", "hummingbird":
+		return "redhat"
+	case "ol", "oracle":
+		return "oraclelinux"
+	case "amzn":
+		return "amazon"
+	}
+	return ns
+}
 
 // componentDistroRelease returns the distro release of a component for release-scoped
 // ecosystems: from the purl `distro` qualifier (debian-12, alpine-3.20.3, ubuntu-22.04), else

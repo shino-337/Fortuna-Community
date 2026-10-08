@@ -53,7 +53,7 @@ func TestOSVEcosystemRelease(t *testing.T) {
 		"AlmaLinux:9":                        "9",
 		"Debian":                             "",
 		"PyPI":                               "",
-		"Red Hat:enterprise_linux:9::baseos": "",
+		"Red Hat:enterprise_linux:9::baseos": "9",
 	}
 	for in, want := range cases {
 		if got := OSVEcosystemRelease(in); got != want {
@@ -111,5 +111,28 @@ func TestConvertToPackageVulnerabilities(t *testing.T) {
 	got, _ = ConvertToPackageVulnerabilities(doc)
 	if len(got) != 0 {
 		t.Fatalf("withdrawn advisory produced %d rows", len(got))
+	}
+}
+
+func TestRedHatEcosystemAndRelease(t *testing.T) {
+	for eco, want := range map[string]string{
+		"Red Hat:enterprise_linux:9::appstream":                "9",
+		"Red Hat:enterprise_linux:8":                           "8",
+		"Red Hat:rhel_eus:9.4::baseos":                         "9",
+		"Red Hat:enterprise_linux_eus:10.0":                    "10",
+		"Red Hat:openshift:4.14::el9":                          "9",
+		"Red Hat:jboss_enterprise_application_platform:7::el8": "8",
+		"Red Hat:devtools:2020":                                "",
+		"Red Hat:hummingbird:1":                                "",
+	} {
+		if got := OSVEcosystemRelease(eco); got != want {
+			t.Errorf("OSVEcosystemRelease(%q) = %q, want %q", eco, got, want)
+		}
+		if got := normalizeEcosystem(eco); got != "redhat" {
+			t.Errorf("normalizeEcosystem(%q) = %q, want redhat", eco, got)
+		}
+	}
+	if got := NormalizeDistroRelease("redhat", "9.4"); got != "9" {
+		t.Errorf("NormalizeDistroRelease(redhat, 9.4) = %q", got)
 	}
 }

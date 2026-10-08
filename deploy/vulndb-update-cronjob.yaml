@@ -13,7 +13,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 8Gi
+      storage: 24Gi
 ---
 # Downloads OSV advisories and loads what changed as a new CVE catalog generation. Core notices
 # the new generation and re-matches running workloads. Needs HTTPS egress to the OSV export
@@ -58,7 +58,7 @@ spec:
               args:
                 - "-mode=sync"
                 - "-fetch-dir=/var/lib/fortuna/vulndb"
-                - "-ecosystems=Debian,Ubuntu,Alpine,Rocky Linux,AlmaLinux,Wolfi,Chainguard,Go,npm,PyPI,Maven,RubyGems,crates.io,NuGet,Packagist"
+                - "-ecosystems=Debian,Ubuntu,Alpine,Rocky Linux,AlmaLinux,Red Hat,Wolfi,Chainguard,Go,npm,PyPI,Maven,RubyGems,crates.io,NuGet,Packagist"
                 - "-osv-base-url=https://osv-vulnerabilities.storage.googleapis.com"
                 - "-keep-generations=2"
                 - "-workers=8"

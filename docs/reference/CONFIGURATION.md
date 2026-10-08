@@ -170,16 +170,16 @@ These are read by the database migrations that run at Core startup.
 
 #### Scheduled vulnerability database update
 
-The `fortuna-vulndb-update` CronJob (Helm `core.vulnDBUpdate`, on by default) runs `cve-loader-optimized -mode=sync` every 6 hours. It downloads the OSV export of each configured ecosystem (`<osvBaseURL>/<Ecosystem>/all.zip`) only when its ETag changed, writes the advisories that changed, and loads them as a new CVE catalog generation. Unchanged advisories are carried into the new generation, removed and withdrawn ones are dropped, and generations older than `keepGenerations` are retired. Core then re-matches running workloads (`FORTUNA_CVE_REMATCH_INTERVAL`).
+The `fortuna-vulndb-update` CronJob (Helm `core.vulnDBUpdate`, on by default) runs `cve-loader-optimized -mode=sync` every 6 hours. The first run downloads the OSV export of each configured ecosystem (`<osvBaseURL>/<Ecosystem>/all.zip`); later runs read the ecosystem's `modified_id.csv` and download only the advisories modified since the previous run (`<osvBaseURL>/<Ecosystem>/<ID>.json`), falling back to the archive when more than 5000 changed. It writes the advisories that changed and loads them as a new CVE catalog generation. Unchanged advisories are carried into the new generation, removed and withdrawn ones are dropped, and generations older than `keepGenerations` are retired. Core then re-matches running workloads (`FORTUNA_CVE_REMATCH_INTERVAL`).
 
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `core.vulnDBUpdate.enabled` | `true` | Installs the CronJob and its PVC. |
 | `core.vulnDBUpdate.schedule` | `23 */6 * * *` | Cron schedule. |
 | `core.vulnDBUpdate.osvBaseURL` | `https://osv-vulnerabilities.storage.googleapis.com` | OSV export location; point it at an internal mirror with the same layout for air-gapped clusters. |
-| `core.vulnDBUpdate.ecosystems` | Debian, Ubuntu, Alpine, Rocky Linux, AlmaLinux, Wolfi, Chainguard, Go, npm, PyPI, Maven, RubyGems, crates.io, NuGet, Packagist | OSV ecosystems downloaded. |
+| `core.vulnDBUpdate.ecosystems` | Debian, Ubuntu, Alpine, Rocky Linux, AlmaLinux, Red Hat, Wolfi, Chainguard, Go, npm, PyPI, Maven, RubyGems, crates.io, NuGet, Packagist | OSV ecosystems downloaded. |
 | `core.vulnDBUpdate.keepGenerations` | `2` | Active catalog generations kept; older rows are deleted. |
-| `core.vulnDBUpdate.persistence.enabled` | `true` | Keeps downloads between runs on a PVC (`size`, `storageClassName`); without it every run downloads and reloads everything. |
+| `core.vulnDBUpdate.persistence.enabled` | `true` | Keeps downloads between runs on a PVC (`size`, default `24Gi`, and `storageClassName`); without it every run downloads and reloads everything. The default ecosystems unpack to about 12 GiB, most of it Ubuntu, Chainguard and Wolfi; drop the ones your images do not use to shrink it. |
 
 An ecosystem whose download fails keeps its previous advisories and fails the job, so the failure shows in the CronJob history; an export that lost more than half its advisories is rejected the same way. The job needs HTTPS egress to `osvBaseURL` and the database, and no Kubernetes API access.
 

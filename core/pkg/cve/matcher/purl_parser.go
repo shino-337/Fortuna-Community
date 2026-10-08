@@ -136,6 +136,11 @@ func distroSourcePackage(p *PURL) (name, version string) {
 	if up == "" {
 		return "", ""
 	}
+	// rpm purls carry the source rpm file name (vim-8.0.1763-32.el8_10.src.rpm). Its version
+	// lacks the epoch, so only the name is used; the binary EVR is compared instead.
+	if strings.HasSuffix(up, ".src.rpm") || strings.HasSuffix(up, ".nosrc.rpm") {
+		return rpmSourceName(up), ""
+	}
 	name, version, _ = strings.Cut(up, "@")
 	// Syft emits upstream as "name@version" and Debian source versions may be given in
 	// parentheses by some tools ("name (version)").
@@ -147,4 +152,19 @@ func distroSourcePackage(p *PURL) (name, version string) {
 		}
 	}
 	return strings.TrimSpace(name), strings.TrimSpace(version)
+}
+
+// rpmSourceName returns the package name of a source rpm file name
+// ("vim-8.0.1763-32.el8_10.src.rpm" → "vim"), or "" when it is not name-version-release.
+func rpmSourceName(srpm string) string {
+	base := strings.TrimSuffix(strings.TrimSuffix(srpm, ".src.rpm"), ".nosrc.rpm")
+	i := strings.LastIndexByte(base, '-')
+	if i <= 0 {
+		return ""
+	}
+	j := strings.LastIndexByte(base[:i], '-')
+	if j <= 0 {
+		return ""
+	}
+	return base[:j]
 }
