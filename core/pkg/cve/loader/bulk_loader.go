@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,8 @@ type BulkLoader struct {
 	workers             int
 	checkpointInterval  int
 	catalogGenerationID uint
+	catalog             *VersionedCatalog
+	seenAdvisoryIDs     []string
 	logger              *log.Logger
 
 	// Statistics
@@ -27,15 +30,20 @@ type BulkLoader struct {
 
 // BulkLoaderStats tracks loading statistics
 type BulkLoaderStats struct {
-	TotalFiles         int64
-	ProcessedFiles     int64
-	FailedFiles        int64
-	CVEsCreated        int64
-	CVEsUpdated        int64
-	PkgVulnsCreated    int64
-	SkippedNoPackages  int64
-	StartTime          time.Time
-	LastCheckpointTime time.Time
+	TotalFiles        int64
+	ProcessedFiles    int64
+	FailedFiles       int64
+	CVEsCreated       int64
+	CVEsUpdated       int64
+	PkgVulnsCreated   int64
+	SkippedNoPackages int64
+	// Versioned catalog (vuln_advisories): new versions written, unchanged advisories skipped,
+	// current versions closed.
+	AdvisoriesWritten   int64
+	AdvisoriesUnchanged int64
+	AdvisoriesClosed    int64
+	StartTime           time.Time
+	LastCheckpointTime  time.Time
 	// Pointer avoids copying a sync.Mutex when snapshots are returned by value.
 	mu     *sync.Mutex
 	Errors []string
@@ -51,16 +59,19 @@ func (l *BulkLoader) Stats() BulkLoaderStats {
 		defer l.stats.mu.Unlock()
 	}
 	return BulkLoaderStats{
-		TotalFiles:         atomic.LoadInt64(&l.stats.TotalFiles),
-		ProcessedFiles:     atomic.LoadInt64(&l.stats.ProcessedFiles),
-		FailedFiles:        atomic.LoadInt64(&l.stats.FailedFiles),
-		CVEsCreated:        atomic.LoadInt64(&l.stats.CVEsCreated),
-		CVEsUpdated:        atomic.LoadInt64(&l.stats.CVEsUpdated),
-		PkgVulnsCreated:    atomic.LoadInt64(&l.stats.PkgVulnsCreated),
-		SkippedNoPackages:  atomic.LoadInt64(&l.stats.SkippedNoPackages),
-		StartTime:          l.stats.StartTime,
-		LastCheckpointTime: l.stats.LastCheckpointTime,
-		Errors:             append([]string(nil), l.stats.Errors...),
+		TotalFiles:          atomic.LoadInt64(&l.stats.TotalFiles),
+		ProcessedFiles:      atomic.LoadInt64(&l.stats.ProcessedFiles),
+		FailedFiles:         atomic.LoadInt64(&l.stats.FailedFiles),
+		CVEsCreated:         atomic.LoadInt64(&l.stats.CVEsCreated),
+		CVEsUpdated:         atomic.LoadInt64(&l.stats.CVEsUpdated),
+		PkgVulnsCreated:     atomic.LoadInt64(&l.stats.PkgVulnsCreated),
+		SkippedNoPackages:   atomic.LoadInt64(&l.stats.SkippedNoPackages),
+		AdvisoriesWritten:   atomic.LoadInt64(&l.stats.AdvisoriesWritten),
+		AdvisoriesUnchanged: atomic.LoadInt64(&l.stats.AdvisoriesUnchanged),
+		AdvisoriesClosed:    atomic.LoadInt64(&l.stats.AdvisoriesClosed),
+		StartTime:           l.stats.StartTime,
+		LastCheckpointTime:  l.stats.LastCheckpointTime,
+		Errors:              append([]string(nil), l.stats.Errors...),
 	}
 }
 
@@ -81,8 +92,26 @@ func NewBulkLoader(db *gorm.DB, workers, batchSize, checkpointInterval int) *Bul
 	}
 }
 
+// SetCatalogGenerationID sets the generation the loaded rows belong to. When the versioned
+// catalog tables exist, advisories are also written there.
 func (l *BulkLoader) SetCatalogGenerationID(id uint) {
 	l.catalogGenerationID = id
+	l.catalog = NewVersionedCatalog(l.db, id)
+}
+
+// Catalog returns the versioned catalog writer of this load, or nil when the tables do not exist.
+func (l *BulkLoader) Catalog() *VersionedCatalog {
+	return l.catalog
+}
+
+// SeenAdvisoryIDs returns the IDs of every advisory parsed so far, withdrawn ones included.
+func (l *BulkLoader) SeenAdvisoryIDs() []string {
+	return l.seenAdvisoryIDs
+}
+
+// AddClosed counts advisories closed outside LoadFiles (removed from the source).
+func (l *BulkLoader) AddClosed(n int) {
+	atomic.AddInt64(&l.stats.AdvisoriesClosed, int64(n))
 }
 
 // LoadFiles processes files using optimized bulk loading
@@ -114,7 +143,7 @@ func (l *BulkLoader) LoadFiles(ctx context.Context, files []string) error {
 // processBatch processes a batch of files using parallel parsing + bulk insert
 func (l *BulkLoader) processBatch(ctx context.Context, files []string) error {
 	// Step 1: Parse files in parallel
-	cves, pkgVulns, err := l.parseFilesParallel(files)
+	cves, pkgVulns, advisories, err := l.parseFilesParallel(files)
 	if err != nil {
 		return err
 	}
@@ -133,6 +162,20 @@ func (l *BulkLoader) processBatch(ctx context.Context, files []string) error {
 		}
 	}
 
+	// Step 4: Versioned catalog
+	if l.catalog != nil {
+		for _, a := range advisories {
+			l.seenAdvisoryIDs = append(l.seenAdvisoryIDs, a.ID)
+		}
+		st, err := l.catalog.Write(ctx, advisories)
+		if err != nil {
+			return fmt.Errorf("write versioned catalog failed: %w", err)
+		}
+		atomic.AddInt64(&l.stats.AdvisoriesWritten, int64(st.Written))
+		atomic.AddInt64(&l.stats.AdvisoriesUnchanged, int64(st.Unchanged))
+		atomic.AddInt64(&l.stats.AdvisoriesClosed, int64(st.Closed))
+	}
+
 	atomic.AddInt64(&l.stats.ProcessedFiles, int64(len(files)))
 	atomic.AddInt64(&l.stats.CVEsCreated, int64(len(cves)))
 	atomic.AddInt64(&l.stats.PkgVulnsCreated, int64(len(pkgVulns)))
@@ -141,10 +184,11 @@ func (l *BulkLoader) processBatch(ctx context.Context, files []string) error {
 }
 
 // parseFilesParallel parses multiple files in parallel
-func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*ParsedPackageVulnerability, error) {
+func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*ParsedPackageVulnerability, []*ParsedAdvisory, error) {
 	type parseResult struct {
 		cve      *ParsedCVE
 		pkgVulns []*ParsedPackageVulnerability
+		advisory *ParsedAdvisory
 		err      error
 	}
 
@@ -163,7 +207,13 @@ func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*Parsed
 			defer func() { <-semaphore }() // Release
 
 			// Parse file
-			osvVuln, err := ParseFile(f)
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				results <- parseResult{err: fmt.Errorf("failed to read file %s: %w", f, err)}
+				atomic.AddInt64(&l.stats.FailedFiles, 1)
+				return
+			}
+			osvVuln, err := ParseBytes(raw, f)
 			if err != nil {
 				results <- parseResult{err: err}
 				atomic.AddInt64(&l.stats.FailedFiles, 1)
@@ -186,7 +236,11 @@ func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*Parsed
 				return
 			}
 
-			results <- parseResult{cve: cve, pkgVulns: pkgVulns}
+			var advisory *ParsedAdvisory
+			if l.catalog != nil {
+				advisory = BuildAdvisory(osvVuln, raw)
+			}
+			results <- parseResult{cve: cve, pkgVulns: pkgVulns, advisory: advisory}
 		}(file)
 	}
 
@@ -199,6 +253,7 @@ func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*Parsed
 	// Collect results
 	var cves []*ParsedCVE
 	var pkgVulns []*ParsedPackageVulnerability
+	var advisories []*ParsedAdvisory
 
 	for result := range results {
 		if result.err != nil {
@@ -210,9 +265,12 @@ func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*Parsed
 			cves = append(cves, result.cve)
 		}
 		pkgVulns = append(pkgVulns, result.pkgVulns...)
+		if result.advisory != nil {
+			advisories = append(advisories, result.advisory)
+		}
 	}
 
-	return cves, pkgVulns, nil
+	return cves, pkgVulns, advisories, nil
 }
 
 // bulkInsertCVEs uses PostgreSQL COPY for fast bulk insert
@@ -455,6 +513,11 @@ func (l *BulkLoader) printFinalStats() {
 	l.logger.Printf("Database records:")
 	l.logger.Printf("  CVEs created/updated: %d", atomic.LoadInt64(&l.stats.CVEsCreated))
 	l.logger.Printf("  Package vulnerabilities created: %d", atomic.LoadInt64(&l.stats.PkgVulnsCreated))
+	if l.catalog != nil {
+		l.logger.Printf("  Versioned catalog: %d written, %d unchanged, %d closed",
+			atomic.LoadInt64(&l.stats.AdvisoriesWritten), atomic.LoadInt64(&l.stats.AdvisoriesUnchanged),
+			atomic.LoadInt64(&l.stats.AdvisoriesClosed))
+	}
 	l.logger.Printf("")
 	l.logger.Printf("Performance:")
 	l.logger.Printf("  Time taken: %v", elapsed.Round(time.Second))
