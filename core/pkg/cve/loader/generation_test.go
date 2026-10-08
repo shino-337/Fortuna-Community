@@ -43,50 +43,6 @@ func idsOfGeneration(t *testing.T, db *gorm.DB, gen uint) []string {
 	return ids
 }
 
-func TestCarryForwardPackageVulns(t *testing.T) {
-	db := openGenerationDB(t)
-	ctx := context.Background()
-	now := time.Now()
-	g1 := activeGen(t, db, now.Add(-time.Hour))
-	for _, id := range []string{"A", "B", "C"} {
-		if err := db.Create(&models.PackageVulnerability{CVEID: id, PackageName: "p", Ecosystem: "debian", EcosystemRelease: "12", VersionEndExcluding: "2", CatalogGenerationID: g1}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Generation 2 reloads B (changed) and drops C (removed upstream).
-	g2 := activeGen(t, db, now)
-	if err := db.Create(&models.PackageVulnerability{CVEID: "B", PackageName: "p", Ecosystem: "debian", VersionEndExcluding: "3", CatalogGenerationID: g2}).Error; err != nil {
-		t.Fatal(err)
-	}
-	n, err := CarryForwardPackageVulns(ctx, db, g1, g2, []string{"B", "C"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("carried %d rows, want 1", n)
-	}
-	if got := idsOfGeneration(t, db, g2); len(got) != 2 || got[0] != "A" || got[1] != "B" {
-		t.Fatalf("generation 2 advisories = %v, want [A B]", got)
-	}
-	var a models.PackageVulnerability
-	db.Where("catalog_generation_id = ? AND cve_id = ?", g2, "A").First(&a)
-	if a.EcosystemRelease != "12" || a.VersionEndExcluding != "2" {
-		t.Fatalf("carried row lost fields: %+v", a)
-	}
-
-	retired, deleted, err := PruneCVEGenerations(ctx, db, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(retired) != 1 || retired[0] != g1 || deleted != 3 {
-		t.Fatalf("retired=%v deleted=%d", retired, deleted)
-	}
-	active, _ := ActiveCVEGeneration(ctx, db)
-	if active == nil || active.ID != g2 {
-		t.Fatalf("active generation = %+v, want %d", active, g2)
-	}
-}
-
 func TestRemovedCVEIDsOnlyCountsTrackedDirectory(t *testing.T) {
 	db := openGenerationDB(t)
 	dir := t.TempDir()

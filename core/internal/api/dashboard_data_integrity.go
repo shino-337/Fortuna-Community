@@ -179,26 +179,15 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// CVE reference tables are optional when absent, but an existing table that
-		// cannot be queried is an availability failure rather than an empty catalog.
-		if db.Migrator().HasTable("cves") {
-			if fail(db.Table("cves").Count(&resp.CrossChecks.CVEsCount).Error,
-				"dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") {
-				return
-			}
+		// The vulnerability catalog is optional when absent, but an existing table that cannot
+		// be queried is an availability failure rather than an empty catalog.
+		catalog, err := countVulnCatalog(db)
+		if fail(err, "dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") {
+			return
 		}
-		if db.Migrator().HasTable("package_vulnerabilities") {
-			if fail(db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount).Error,
-				"dashboard_integrity_packages_unavailable", "Package vulnerability cross-checks could not be loaded") {
-				return
-			}
-		}
-		if db.Migrator().HasTable("osv_packages") {
-			if fail(db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount).Error,
-				"dashboard_integrity_osv_unavailable", "OSV cross-checks could not be loaded") {
-				return
-			}
-		}
+		resp.CrossChecks.CVEsCount = catalog.CVEs
+		resp.CrossChecks.PackageVulnerabilitiesCount = catalog.Ranges
+		resp.CrossChecks.OsvPackagesCount = catalog.Advisories
 		if db.Migrator().HasTable("malware_packages") {
 			if fail(db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount).Error,
 				"dashboard_integrity_malware_unavailable", "Malware catalog cross-checks could not be loaded") {
@@ -236,11 +225,8 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			resp.Alerts = append(resp.Alerts, "data_exists_no_agents: pods exist but no agents in agents table")
 		}
 		// Alert: CVE tables exist but reference data not loaded (run sync + load-cve-data.sh)
-		if db.Migrator().HasTable("cves") && resp.CrossChecks.CVEsCount == 0 {
-			resp.Alerts = append(resp.Alerts, "cve_reference_empty: cves table is empty; run scripts/utils/sync-package-vulnerability-source.sh then scripts/utils/load-cve-data.sh")
-		}
-		if db.Migrator().HasTable("osv_packages") && resp.CrossChecks.OsvPackagesCount == 0 {
-			resp.Alerts = append(resp.Alerts, "osv_mirror_empty: osv_packages has no rows; CVE matching will be degraded until OSV bootstrap/loader runs")
+		if resp.CrossChecks.CVEsCount == 0 {
+			resp.Alerts = append(resp.Alerts, "cve_reference_empty: the vulnerability catalog is empty; check the fortuna-vulndb-update job")
 		}
 		if db.Migrator().HasTable("malware_packages") && resp.CrossChecks.MalwarePackagesCount == 0 {
 			resp.Alerts = append(resp.Alerts, "malware_catalog_empty: malware_packages has no rows; supply-chain malware matching is inactive")
@@ -349,20 +335,16 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 		}
 	}
 
-	if db.Migrator().HasTable("cves") {
-		t, err := latestQueryTime(db.Table("cves"), "updated_at")
-		if err != nil {
-			return health, err
-		}
-		health.LastCVEUpdatedAt = t
+	versioned, err := versionedCatalogLoaded(db)
+	if err != nil {
+		return health, err
 	}
-	if db.Migrator().HasTable("package_vulnerabilities") {
-		t, err := latestQueryTime(db.Table("package_vulnerabilities"), "updated_at")
-		if err != nil {
-			return health, err
-		}
-		health.LastPackageVulnerabilityUpdate = t
+	updatedAt, err := vulnCatalogUpdatedAt(db, versioned)
+	if err != nil {
+		return health, err
 	}
+	health.LastCVEUpdatedAt = updatedAt
+	health.LastPackageVulnerabilityUpdate = updatedAt
 	if db.Migrator().HasTable("malware_packages") {
 		t, err := latestQueryTime(db.Table("malware_packages").Where("deleted_at IS NULL"), "updated_at")
 		if err != nil {
