@@ -97,8 +97,8 @@ WHERE catalog_generation_id = ? AND deleted_at IS NULL
 }
 
 // PruneCVEGenerations keeps the newest keep active cve generations and retires the older ones,
-// deleting their package_vulnerabilities rows. Rows of generation 0 (loaded before generations
-// existed) are left alone.
+// deleting their package_vulnerabilities rows and the versioned catalog rows none of the kept
+// generations can read. Rows of generation 0 (loaded before generations existed) are left alone.
 func PruneCVEGenerations(ctx context.Context, db *gorm.DB, keep int) (retired []uint, deleted int64, err error) {
 	if keep < 1 {
 		keep = 1
@@ -110,8 +110,24 @@ func PruneCVEGenerations(ctx context.Context, db *gorm.DB, keep int) (retired []
 		Find(&gens).Error; err != nil {
 		return nil, 0, err
 	}
-	if len(gens) <= keep {
+	if len(gens) == 0 {
 		return nil, 0, nil
+	}
+	// Versions closed at or before the oldest kept generation are invisible to every kept one.
+	// Generations are ordered by activation, so a re-activated older one may be kept.
+	oldestKept := gens[0].ID
+	for _, g := range gens[:min(keep, len(gens))] {
+		if g.ID < oldestKept {
+			oldestKept = g.ID
+		}
+	}
+	pruned, err := PruneVersionedCatalog(ctx, db, oldestKept)
+	if err != nil {
+		return nil, 0, err
+	}
+	deleted += pruned
+	if len(gens) <= keep {
+		return nil, deleted, nil
 	}
 	for _, g := range gens[keep:] {
 		res := db.WithContext(ctx).Unscoped().

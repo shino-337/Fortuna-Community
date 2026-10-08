@@ -123,6 +123,7 @@ var (
 	_ = Migration154_RetireUserAdmin
 	_ = Migration155_SystemUserHasNoRole
 	_ = Migration156_VulnEcosystemRelease
+	_ = Migration157_VulnCatalogVersioned
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -359,6 +360,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration154_RetireUserAdmin,            // Access: user_admin accounts become viewers with no cluster
 		Migration155_SystemUserHasNoRole,        // Access: the audit "system" account loses admin
 		Migration156_VulnEcosystemRelease,       // CVE: advisory ranges keep their distro release
+		Migration157_VulnCatalogVersioned,       // CVE: versioned advisory catalog, per-CVE enrichment, feed state
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

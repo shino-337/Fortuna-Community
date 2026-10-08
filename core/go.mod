@@ -16,6 +16,7 @@ require (
 	github.com/knqyf263/go-rpm-version v0.0.0-20240918084003-2afd7dc6a38f
 	github.com/lib/pq v1.10.9
 	github.com/nats-io/nats.go v1.31.0
+	github.com/pandatix/go-cvss v0.6.2
 	github.com/prometheus/client_golang v1.18.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.56.0

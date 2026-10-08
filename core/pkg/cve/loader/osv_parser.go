@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/fortuna/core/pkg/cve/cvss"
 )
 
 // OSVVulnerability represents the OSV.dev JSON schema 1.7.3
@@ -18,6 +20,7 @@ type OSVVulnerability struct {
 	Summary       string   `json:"summary,omitempty"`
 	Details       string   `json:"details,omitempty"`
 	Aliases       []string `json:"aliases,omitempty"`
+	Upstream      []string `json:"upstream,omitempty"`
 	Related       []string `json:"related,omitempty"`
 
 	Affected []OSVAffected `json:"affected,omitempty"`
@@ -36,6 +39,8 @@ type OSVAffected struct {
 	Ranges []OSVRange `json:"ranges,omitempty"`
 
 	Versions []string `json:"versions,omitempty"`
+
+	Severity []OSVSeverity `json:"severity,omitempty"`
 
 	EcosystemSpecific map[string]interface{} `json:"ecosystem_specific,omitempty"`
 	DatabaseSpecific  map[string]interface{} `json:"database_specific,omitempty"`
@@ -65,8 +70,8 @@ type OSVEvent struct {
 
 // OSVSeverity represents severity information
 type OSVSeverity struct {
-	Type  string `json:"type"`  // CVSS_V2, CVSS_V3
-	Score string `json:"score"` // CVSS vector string
+	Type  string `json:"type"`  // CVSS_V2, CVSS_V3, CVSS_V4, Ubuntu
+	Score string `json:"score"` // CVSS vector, or the rating for Ubuntu
 }
 
 // OSVReference represents external references
@@ -112,15 +117,19 @@ func ParseFile(path string) (*OSVVulnerability, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
 	}
+	return ParseBytes(data, path)
+}
 
+// ParseBytes parses one OSV advisory; name is only used in errors.
+func ParseBytes(data []byte, name string) (*OSVVulnerability, error) {
 	var vuln OSVVulnerability
 	if err := json.Unmarshal(data, &vuln); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON in %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse JSON in %s: %w", name, err)
 	}
 
 	// Validate required fields
 	if vuln.ID == "" {
-		return nil, fmt.Errorf("missing ID in %s", path)
+		return nil, fmt.Errorf("missing ID in %s", name)
 	}
 
 	return &vuln, nil
@@ -145,6 +154,15 @@ func ConvertToCVE(osv *OSVVulnerability) (*ParsedCVE, error) {
 
 	// Parse CVSS
 	cvssScore, cvssVector, cvssVersion, severity := parseCVSS(osv.Severity)
+	if rating := AdvisoryRating(osv); rating != "" {
+		severity = rating
+	}
+	severity = legacyRating(severity)
+	if severity == "" {
+		// The legacy cves.severity column is NOT NULL and the matcher still reads it;
+		// vuln_advisories keeps the honest UNKNOWN.
+		severity = cvss.Medium
+	}
 
 	// Build references JSON
 	refsJSON := buildReferencesJSON(osv.References)
@@ -399,97 +417,82 @@ func NormalizeDistroRelease(distro, version string) string {
 	return v
 }
 
-// parseCVSS extracts CVSS score and severity from OSV severity data
+// parseCVSS picks the advisory's CVSS vector (v3 first, then v4, then v2) and scores it with
+// the official formula. A missing or invalid vector returns score 0 and no severity.
 func parseCVSS(severities []OSVSeverity) (score float64, vector, version, severity string) {
-	for _, sev := range severities {
-		if sev.Type == "CVSS_V3" || sev.Type == "CVSS_V2" {
-			vector = sev.Score
-			version = strings.Replace(sev.Type, "CVSS_", "", 1)
-
-			// Parse score from CVSS vector
-			// Format: CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:L
-			if strings.HasPrefix(vector, "CVSS:") {
-				parts := strings.Split(vector, "/")
-				if len(parts) > 1 {
-					// Calculate approximate score based on metrics
-					score = calculateCVSSScore(parts[1:])
-					severity = scoreToseverity(score)
-				}
+	for _, typ := range []string{"CVSS_V3", "CVSS_V4", "CVSS_V2"} {
+		for _, sev := range severities {
+			if sev.Type != typ {
+				continue
 			}
-			break
+			s, ver, ok := cvss.BaseScore(sev.Score)
+			if !ok {
+				continue
+			}
+			if ver == "2.0" {
+				return s, sev.Score, "V2", cvss.SeverityFromV2Score(s)
+			}
+			return s, sev.Score, strings.Replace(typ, "CVSS_", "", 1), cvss.SeverityFromScore(s)
 		}
 	}
-
-	// Default to MEDIUM if no severity found
-	if severity == "" {
-		severity = "MEDIUM"
-		score = 5.0
-	}
-
-	return score, vector, version, severity
+	return 0, "", "", ""
 }
 
-// calculateCVSSScore provides approximate CVSS score calculation
-func calculateCVSSScore(metrics []string) float64 {
-	// Simplified scoring logic
-	// Full CVSS calculation is complex, this is an approximation
-	baseScore := 5.0 // Default
-
-	for _, metric := range metrics {
-		parts := strings.Split(metric, ":")
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := parts[0]
-		val := parts[1]
-
-		switch key {
-		case "AV": // Attack Vector
-			if val == "N" {
-				baseScore += 1.5 // Network
-			} else if val == "A" {
-				baseScore += 1.0 // Adjacent
-			}
-		case "AC": // Attack Complexity
-			if val == "L" {
-				baseScore += 1.0 // Low
-			}
-		case "PR": // Privileges Required
-			if val == "N" {
-				baseScore += 1.5 // None
-			}
-		case "UI": // User Interaction
-			if val == "N" {
-				baseScore += 0.5 // None
-			}
-		case "C", "I", "A": // Confidentiality, Integrity, Availability
-			if val == "H" {
-				baseScore += 1.0 // High
-			} else if val == "L" {
-				baseScore += 0.5 // Low
-			}
+// AdvisoryRating returns the qualitative rating the advisory's own source gave it: GitHub's
+// database_specific.severity, the Ubuntu priority, or the highest Debian urgency of its
+// packages. "" when the source gave none.
+func AdvisoryRating(osv *OSVVulnerability) string {
+	if osv == nil {
+		return ""
+	}
+	if s, ok := osv.DatabaseSpecific["severity"].(string); ok {
+		if r := cvss.NormalizeRating(s); r != "" {
+			return r
 		}
 	}
-
-	// Cap at 10.0
-	if baseScore > 10.0 {
-		baseScore = 10.0
+	if r := ratingOf(osv.Severity); r != "" {
+		return r
 	}
-
-	return baseScore
+	best := ""
+	for i := range osv.Affected {
+		if r := AffectedRating(&osv.Affected[i]); cvss.Rank(r) > cvss.Rank(best) {
+			best = r
+		}
+	}
+	return best
 }
 
-// scoreToseverity converts CVSS score to severity level
-func scoreToseverity(score float64) string {
-	if score >= 9.0 {
-		return "CRITICAL"
-	} else if score >= 7.0 {
-		return "HIGH"
-	} else if score >= 4.0 {
-		return "MEDIUM"
+// AffectedRating returns the vendor rating of one affected package: Debian's urgency or an
+// Ubuntu priority attached to the package.
+func AffectedRating(a *OSVAffected) string {
+	if a == nil {
+		return ""
 	}
-	return "LOW"
+	if u, ok := a.EcosystemSpecific["urgency"].(string); ok {
+		if r := cvss.NormalizeRating(u); r != "" {
+			return r
+		}
+	}
+	return ratingOf(a.Severity)
+}
+
+func ratingOf(severities []OSVSeverity) string {
+	for _, s := range severities {
+		if strings.EqualFold(s.Type, "Ubuntu") {
+			if r := cvss.NormalizeRating(s.Score); r != "" {
+				return r
+			}
+		}
+	}
+	return ""
+}
+
+// legacyRating maps a rating onto the four levels the legacy cves table and matcher know.
+func legacyRating(r string) string {
+	if r == cvss.Negligible {
+		return cvss.Low
+	}
+	return r
 }
 
 // buildReferencesJSON converts OSV references to JSON string
