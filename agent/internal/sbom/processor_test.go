@@ -2,6 +2,10 @@ package sbom
 
 import (
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/fortuna/agent/pkg/sbom/extractor"
 )
 
 func TestParseImageRef(t *testing.T) {
@@ -52,5 +56,49 @@ func TestParseImageRef(t *testing.T) {
 				t.Errorf("parseImageRef(%q) tag = %q, want %q", tt.imageRef, gotTag, tt.wantTag)
 			}
 		})
+	}
+}
+
+func TestRunningImageDigestRef(t *testing.T) {
+	const d = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	pod := func(imageID string) *corev1.Pod {
+		return &corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "other", ImageID: "docker.io/library/redis@" + d},
+			{Name: "app", ImageID: imageID},
+		}}}
+	}
+	tests := []struct {
+		name    string
+		imageID string
+		want    string
+	}{
+		{"containerd repo digest", "docker.io/library/nginx@" + d, "index.docker.io/library/nginx@" + d},
+		{"cri-dockerd prefix", "docker-pullable://ghcr.io/acme/api@" + d, "ghcr.io/acme/api@" + d},
+		{"config id only is not pullable", d, ""},
+		{"not reported yet", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := runningImageDigestRef(pod(tt.imageID), "app"); got != tt.want {
+				t.Errorf("runningImageDigestRef = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := runningImageDigestRef(pod(""), "missing"); got != "" {
+		t.Errorf("unknown container: got %q, want empty", got)
+	}
+}
+
+func TestConvertToProtoDropsAnnotations(t *testing.T) {
+	p := &Processor{}
+	pod := &corev1.Pod{}
+	pod.Labels = map[string]string{"app": "api"}
+	pod.Annotations = map[string]string{"kubectl.kubernetes.io/last-applied-configuration": `{"env":[{"name":"DB_PASSWORD","value":"s3cret"}]}`}
+	out := p.convertToProto(pod, corev1.Container{Name: "app", Image: "nginx:1.27"}, &extractor.RawSBOM{})
+	if len(out.Annotations) != 0 {
+		t.Fatalf("annotations sent to Core: %v", out.Annotations)
+	}
+	if out.Labels["app"] != "api" {
+		t.Fatalf("labels = %v, want app=api kept", out.Labels)
 	}
 }

@@ -32,6 +32,13 @@ func normalizeEcosystem(e string) string {
 	if strings.HasPrefix(e, "alpine:") || e == "alpine" {
 		return "alpine"
 	}
+	// OSV names these "Rocky Linux:8" / "AlmaLinux:9"; the matcher queries "rocky" / "alma".
+	if strings.HasPrefix(e, "rocky linux") {
+		return "rocky"
+	}
+	if strings.HasPrefix(e, "almalinux") {
+		return "alma"
+	}
 	if e == "red hat" || strings.HasPrefix(e, "red hat:") {
 		return "redhat"
 	}

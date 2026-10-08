@@ -22,7 +22,6 @@ require (
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/fifo v1.1.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
-	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.1 // indirect
 	github.com/containerd/ttrpc v1.2.7 // indirect
 	github.com/containerd/typeurl/v2 v2.2.0 // indirect
@@ -105,6 +104,7 @@ require (
 	github.com/anchore/go-rpmdb v0.0.0-20260303175756-c791f00b2705
 	github.com/cilium/ebpf v0.22.0
 	github.com/containerd/containerd v1.7.35
+	github.com/containerd/platforms v0.2.1
 	github.com/fortuna/api v0.0.0
 	github.com/google/go-containerregistry v0.20.6
 	github.com/google/uuid v1.6.0

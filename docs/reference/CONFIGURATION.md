@@ -271,11 +271,12 @@ The Agent has no log level setting.
 | `SBOM_FS_SKIP_PATH_PREFIXES` | none | Comma-separated absolute path prefixes whose files are not stored; `off` disables. |
 | `SBOM_FS_METRICS` | on | `0`, `off` or `false` stops the per-image filesystem metrics log line. |
 | `FORTUNA_RPM_INVENTORY_PATH` | `/var/lib/fortuna/rpm-packages.list` | Path inside the image of an RPM package list, tried before rpm manifests and the rpm database. |
-| `SBOM_USE_SYFT_FALLBACK` | enabled | `0`, `false`, `off` or `disabled` stops running Syft for distroless or unknown images where few packages were found. |
+| `SBOM_ENGINE` | `syft` | Main package cataloger. With `syft`, Syft catalogs the exported image offline and the Fortuna parsers are used only when Syft is missing or fails; `fortuna` uses the Fortuna parsers first. |
+| `SBOM_USE_SYFT_FALLBACK` | enabled | `0`, `false`, `off` or `disabled` stops running Syft (when `SBOM_ENGINE=fortuna`) for distroless or unknown images where few packages were found. |
 | `SBOM_SYFT_BIN` | `syft` | Syft executable. |
 | `SBOM_SYFT_MIN_PACKAGE_THRESHOLD` | `20` | Distroless images with fewer packages than this also get a Syft pass. |
 | `SBOM_SYFT_TIMEOUT` | `5m` | Timeout of one Syft run (duration or seconds). |
-| `SBOM_SYFT_MAX_PACKAGES` | `1000` | Maximum packages taken from a Syft result. |
+| `SBOM_SYFT_MAX_PACKAGES` | `10000` | Maximum packages taken from a Syft result. |
 | `SBOM_SYFT_MAX_RETRIES` | `2` | Retries of a failed Syft run. |
 | `SBOM_SYFT_CACHE_TTL` | `1h` | How long Syft results are cached in memory per digest; `0` disables. |
 | `SBOM_SYFT_CACHE_MAX_ITEMS` | `256` | Maximum cached Syft results; `0` disables. |

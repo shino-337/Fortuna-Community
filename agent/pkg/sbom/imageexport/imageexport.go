@@ -24,6 +24,7 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/platforms"
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
@@ -87,7 +88,12 @@ func (c ContainerdExporter) Export(ctx context.Context, ref string, w io.Writer)
 		if _, err := client.ImageService().Get(cctx, candidate); err != nil {
 			continue
 		}
-		if err := archive.Export(cctx, client.ContentStore(), w, archive.WithImage(client.ImageService(), candidate)); err != nil {
+		// Export only this node's platform. Without it containerd walks every manifest of a
+		// multi-arch index and fails on the platforms the node never pulled ("content digest
+		// ... not found"), and the archive has no manifest.json for the Agent to read.
+		if err := archive.Export(cctx, client.ContentStore(), w,
+			archive.WithImage(client.ImageService(), candidate),
+			archive.WithPlatform(platforms.DefaultStrict())); err != nil {
 			return fmt.Errorf("containerd export error: %w", err)
 		}
 		return nil

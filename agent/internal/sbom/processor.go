@@ -71,11 +71,14 @@ func (p *Processor) ProcessPod(ctx context.Context, pod *corev1.Pod) error {
 // Core responsibility: Match CVEs, generate insights, calculate risk
 func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, container corev1.Container) error {
 	imageRef := container.Image
-	p.logger.Printf("🔍 Extracting SBOM: pod=%s/%s container=%s image=%s",
-		pod.Namespace, pod.Name, container.Name, imageRef)
+	// Scan the image the container is actually running (status.imageID), not whatever
+	// the tag points to now; the tag still drives display and tag-based version hints.
+	runningRef := runningImageDigestRef(pod, container.Name)
+	p.logger.Printf("🔍 Extracting SBOM: pod=%s/%s container=%s image=%s running=%s",
+		pod.Namespace, pod.Name, container.Name, imageRef, runningRef)
 
 	// Extract SBOM using local extractor
-	rawSBOM, err := p.extractor.ExtractSBOM(ctx, imageRef)
+	rawSBOM, err := p.extractor.ExtractSBOMPinned(ctx, imageRef, runningRef)
 	if err != nil {
 		// C0.1: pull/extraction failure must still emit a SBOMFinding so Core can
 		// create an SBOM row with sbom_status=failed (empty packages).
@@ -83,6 +86,9 @@ func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, conta
 
 		imageName, imageTag := parseImageRef(imageRef)
 		imageDigest := resolveImageDigest(imageRef)
+		if runningRef != "" {
+			imageDigest = resolveImageDigest(runningRef)
+		}
 
 		sbomFinding := &pb.SBOMFinding{
 			SchemaVersion: 1,
@@ -99,7 +105,6 @@ func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, conta
 			AgentId:       p.agentID,
 			NodeId:        p.nodeID,
 			Labels:        pod.Labels,
-			Annotations:   pod.Annotations,
 			SbomSource:    pb.SBOMSource_SBOM_SOURCE_UNKNOWN,
 			Confidence:    pb.Confidence_CONFIDENCE_LOW,
 		}
@@ -159,6 +164,7 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 			Type:         mapPackageType(pkg.Type),
 			Architecture: pkg.Arch,
 			Source:       pkg.Source,
+			Licenses:     pkg.Licenses,
 		}
 		if pkg.PURL != "" {
 			pp.Purl = pkg.PURL
@@ -185,11 +191,6 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		labels["fortuna_signature_db_version"] = rawSBOM.SignatureVersion
 	}
 
-	annotations := make(map[string]string, len(pod.Annotations))
-	for k, v := range pod.Annotations {
-		annotations[k] = v
-	}
-
 	out := &pb.SBOMFinding{
 		SchemaVersion: 1,
 		PodUid:        string(pod.UID),
@@ -205,7 +206,8 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		AgentId:       p.agentID,
 		NodeId:        p.nodeID,
 		Labels:        labels,
-		Annotations:   annotations,
+		// Pod annotations are not sent: Core does not store them, and they can carry
+		// sensitive values (kubectl last-applied-configuration holds the full spec).
 	}
 	// Finding #8.4: SBOM-level source and confidence for Core (CVE matching policy)
 	out.SbomSource = mapSBOMSource(rawSBOM.SBOMSource)
@@ -228,6 +230,29 @@ func parseImageRef(imageRef string) (imageName, imageTag string) {
 		imageTag = "latest"
 	}
 	return imageName, imageTag
+}
+
+// runningImageDigestRef returns a repo@sha256 reference for the image the container is
+// running, taken from pod status (containerStatuses[].imageID). Returns "" when the
+// runtime did not report a pullable digest (e.g. only a config ID "sha256:..."), in
+// which case the caller falls back to the spec image reference.
+func runningImageDigestRef(pod *corev1.Pod, containerName string) string {
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name != containerName {
+			continue
+		}
+		id := strings.TrimSpace(cs.ImageID)
+		id = strings.TrimPrefix(id, "docker-pullable://")
+		if id == "" {
+			return ""
+		}
+		ref, err := name.NewDigest(id)
+		if err != nil {
+			return ""
+		}
+		return ref.Name()
+	}
+	return ""
 }
 
 // resolveImageDigest returns a best-effort stable digest string for sbom cache keys.

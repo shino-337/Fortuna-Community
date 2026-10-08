@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,9 @@ type Extractor struct {
 	syftMinPackageThreshold int
 	syftCache               *SyftResultCache
 	syftMaxRetries          int
+	// syftPrimary makes Syft the main cataloger (SBOM_ENGINE=syft, the default); the
+	// Fortuna parsers run only when Syft is missing or fails.
+	syftPrimary bool
 }
 
 // NewExtractor creates a new custom SBOM extractor.
@@ -74,7 +78,7 @@ func NewExtractor() *Extractor {
 		}
 	}
 
-	syftMaxPkgs := 1000
+	syftMaxPkgs := defaultMaxPackages
 	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_MAX_PACKAGES")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			syftMaxPkgs = n
@@ -109,12 +113,15 @@ func NewExtractor() *Extractor {
 		syftCache = NewSyftResultCache(syftCacheTTL, syftCacheMax)
 	}
 
+	// SBOM_ENGINE=fortuna keeps the Fortuna parsers as the main cataloger.
+	syftPrimary := !strings.EqualFold(strings.TrimSpace(os.Getenv("SBOM_ENGINE")), "fortuna")
+
 	var syftAdapter *SyftAdapter
-	if syftEnabled {
+	if syftEnabled || syftPrimary {
 		syftAdapter = NewSyftAdapter(logger, syftTimeout, syftMaxPkgs)
 		// If enabled but binary missing, warn once at startup.
 		if !syftAdapter.HasSyftBinary() {
-			logger.Printf("⚠️  WARNING: SBOM_USE_SYFT_FALLBACK is enabled but syft binary not found (bin=%q). Falling back to Fortuna-only.", syftAdapter.syftBin)
+			logger.Printf("⚠️  WARNING: syft binary not found (bin=%q); SBOMs use the Fortuna parsers only.", syftAdapter.syftBin)
 		}
 	}
 
@@ -141,6 +148,7 @@ func NewExtractor() *Extractor {
 		syftMinPackageThreshold: syftMinPkgs,
 		syftCache:               syftCache,
 		syftMaxRetries:          syftMaxRetries,
+		syftPrimary:             syftPrimary,
 	}
 }
 
@@ -149,23 +157,42 @@ func (e *Extractor) ExtractSBOM(
 	ctx context.Context,
 	imageRef string,
 ) (*RawSBOM, error) {
-	start := time.Now()
-	e.logger.Printf("Extracting SBOM from image: %s", imageRef)
+	return e.ExtractSBOMPinned(ctx, imageRef, "")
+}
 
-	// 1. Get image (local-first approach)
+// ExtractSBOMPinned extracts the SBOM of pinnedRef (a repo@sha256 reference for the image
+// actually running) while keeping imageRef (the spec reference, usually a tag) for tag-based
+// version hints and the synthetic component. With an empty pinnedRef it scans imageRef.
+func (e *Extractor) ExtractSBOMPinned(
+	ctx context.Context,
+	imageRef string,
+	pinnedRef string,
+) (*RawSBOM, error) {
+	start := time.Now()
+	e.logger.Printf("Extracting SBOM from image: %s (pinned=%q)", imageRef, pinnedRef)
+
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse image reference: %w", err)
 	}
+	fetchRef := ref
+	if strings.TrimSpace(pinnedRef) != "" {
+		pinned, err := name.ParseReference(pinnedRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse pinned image reference: %w", err)
+		}
+		fetchRef = pinned
+	}
 
-	img, err := e.getImage(ctx, ref)
+	// 1. Get image (local-first approach)
+	img, err := e.getImage(ctx, fetchRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image: %w", err)
 	}
 
 	// Extract image digest for caching
 	var imageDigest string
-	if digestRef, ok := ref.(name.Digest); ok {
+	if digestRef, ok := fetchRef.(name.Digest); ok {
 		imageDigest = digestRef.DigestStr()
 		e.logger.Printf("✅ Extracted digest from reference: %s", imageDigest)
 	} else {
@@ -184,7 +211,10 @@ func (e *Extractor) ExtractSBOM(
 
 	// 1b. Cache lookup (Finding #8.5 / B2): skip extract if we have a valid cached SBOM
 	sigVersion := signatures.Version()
-	if e.cache != nil {
+	// Only a content digest is a safe cache key; a tag fallback would serve a stale SBOM
+	// after the tag moves.
+	cacheable := strings.HasPrefix(imageDigest, "sha256:")
+	if e.cache != nil && cacheable {
 		if cached, err := e.cache.Get(imageDigest, sigVersion); err == nil && cached != nil {
 			// Do not use cache when cached has 0 packages (e.g. distroless before synthetic fallback existed)
 			// so we re-extract and get at least synthetic component (Finding #8).
@@ -202,6 +232,20 @@ func (e *Extractor) ExtractSBOM(
 		imageConfig = cfg
 	}
 
+	// 2b. Syft (primary): catalog the same image offline; fall back to the parsers below.
+	if e.syftPrimary && e.syftAdapter != nil {
+		cat, err := e.extractWithSyft(ctx, fetchRef, img)
+		if err == nil {
+			sbom := e.rawSBOMFromSyft(cat, imageRef, imageDigest, imageConfig, sigVersion)
+			if e.cache != nil && cacheable {
+				_ = e.cache.Set(imageDigest, sigVersion, sbom)
+			}
+			e.logger.Printf("✅ Syft cataloged %d packages (OS %s %s) in %v", len(sbom.Packages), sbom.OS.Name, sbom.OS.Version, time.Since(start))
+			return sbom, nil
+		}
+		e.logger.Printf("⚠️  Syft catalog failed, falling back to Fortuna parsers: %v", err)
+	}
+
 	// 3. Get image layers
 	layers, err := img.Layers()
 	if err != nil {
@@ -209,7 +253,7 @@ func (e *Extractor) ExtractSBOM(
 	}
 
 	// 4. Extract filesystem
-	fs, err := e.buildFilesystem(ctx, layers)
+	fs, layerFailures, err := e.buildFilesystem(ctx, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build filesystem: %w", err)
 	}
@@ -287,7 +331,7 @@ func (e *Extractor) ExtractSBOM(
 		}
 
 		e.logger.Printf("   [FALLBACK] Fortuna found %d packages; invoking Syft...", fortunaPkgCount)
-		syftPkgs, err := e.invokeSyftWithRetry(ctx, imageRef)
+		syftPkgs, err := e.invokeSyftWithRetry(ctx, fetchRef.Name())
 		if err != nil {
 			e.logger.Printf("   [FALLBACK] Syft discovery failed (continuing with Fortuna results): %v", err)
 		} else if len(syftPkgs) > 0 {
@@ -323,6 +367,13 @@ afterSyftFallback:
 		}
 	}
 
+	// A layer we could not read means packages may be missing: never report that as a
+	// complete (high confidence) SBOM.
+	if layerFailures > 0 && confidence == "high" {
+		e.logger.Printf("⚠️  %d of %d layers could not be read; marking SBOM confidence medium", layerFailures, len(layers))
+		confidence = "medium"
+	}
+
 	// 8. Distroless/system fallback (Finding #8): when no package manager found, emit one synthetic component
 	if len(deduped) == 0 {
 		synthetic := e.syntheticPackageFromImage(imageRef, imageConfig)
@@ -356,14 +407,43 @@ afterSyftFallback:
 		Confidence:       confidence,
 		SignatureVersion: sigVersion,
 		GoVersion:        goToolchain,
+		Engine:           "fortuna",
 	}
 
-	if e.cache != nil {
+	if e.cache != nil && cacheable && layerFailures == 0 {
 		_ = e.cache.Set(imageDigest, sigVersion, sbom)
 	}
 
 	e.logger.Printf("✅ Extracted %d unique packages in %v", len(deduped), time.Since(start))
 	return sbom, nil
+}
+
+// rawSBOMFromSyft turns a Syft catalog into the RawSBOM sent to Core.
+func (e *Extractor) rawSBOMFromSyft(cat *SyftCatalog, imageRef, imageDigest string, imageConfig *v1.ConfigFile, sigVersion string) *RawSBOM {
+	pkgs := e.deduplicate(cat.Packages)
+	sbomSource, confidence := "parsers", "high"
+	if len(pkgs) == 0 {
+		synthetic := e.syntheticPackageFromImage(imageRef, imageConfig)
+		pkgs = append(pkgs, synthetic)
+		sbomSource = "distroless-heuristic"
+		confidence = synthetic.Confidence
+	}
+	goToolchain := cat.GoVersion
+	if goToolchain == "" {
+		goToolchain = normalizeGoToolchainVersionForSBOM(goVersionFromImageConfig(imageConfig))
+	}
+	return &RawSBOM{
+		ImageName:        imageRef,
+		ImageDigest:      imageDigest,
+		OS:               cat.OS,
+		Packages:         pkgs,
+		ExtractedAt:      time.Now(),
+		SBOMSource:       sbomSource,
+		Confidence:       confidence,
+		SignatureVersion: sigVersion,
+		GoVersion:        goToolchain,
+		Engine:           "syft",
+	}
 }
 
 // ResolveDigest resolves an immutable image digest (sha256:...) without extracting layers.
@@ -415,12 +495,19 @@ func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image,
 	}
 
 	// Fall back to remote registry
-	img, err := remote.Image(ref, remote.WithContext(ctx))
+	// Pick this node's platform from multi-arch indexes; the library default is linux/amd64,
+	// which on arm64 nodes would scan a different image than the one running.
+	img, err := remote.Image(ref, remote.WithContext(ctx), remote.WithPlatform(nodePlatform()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch from remote registry: %w", err)
 	}
 	e.logger.Printf("Fetched image from remote registry: %s", ref.Name())
 	return img, nil
+}
+
+// nodePlatform is the platform of this node; the Agent runs natively on it.
+func nodePlatform() v1.Platform {
+	return v1.Platform{OS: runtime.GOOS, Architecture: runtime.GOARCH}
 }
 
 func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Reference) (v1.Image, error) {
@@ -466,16 +553,16 @@ func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Referen
 	for _, layer := range layers {
 		diffID, _ := layer.DiffID()
 		layerDigest, _ := layer.Digest()
+		// A missing layer must not be dropped silently (the SBOM would look complete);
+		// fail so getImage falls back to the registry.
 		rc, err := layer.Uncompressed()
 		if err != nil {
-			e.logger.Printf("⚠️  Layer Uncompressed failed (materialize): %v", err)
-			continue
+			return nil, fmt.Errorf("layer uncompress (materialize): %w", err)
 		}
 		blob, err := io.ReadAll(rc)
 		_ = rc.Close()
 		if err != nil {
-			e.logger.Printf("⚠️  Layer read failed: %v", err)
-			continue
+			return nil, fmt.Errorf("layer read (materialize): %w", err)
 		}
 		memLayers = append(memLayers, &memLayer{diffID: diffID, digest: layerDigest, blob: blob})
 	}
@@ -536,25 +623,29 @@ func (e *Extractor) logSBOMFilesystemMetrics(fs *Filesystem) {
 }
 
 // buildFilesystem builds a virtual filesystem from image layers (base → top; overlay semantics).
-func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Filesystem, error) {
+// It returns how many layers could not be read; the SBOM is then incomplete.
+func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Filesystem, int, error) {
 	fs := NewFilesystem()
+	failures := 0
 
 	for i, layer := range layers {
 		uncompressed, err := layer.Uncompressed()
 		if err != nil {
 			e.logger.Printf("⚠️  Layer %d Uncompressed failed: %v", i, err)
+			failures++
 			continue
 		}
 
 		if err := fs.ExtractTar(ctx, i, uncompressed); err != nil {
 			_ = uncompressed.Close()
 			e.logger.Printf("⚠️  Layer %d ExtractTar failed: %v", i, err)
+			failures++
 			continue
 		}
 		_ = uncompressed.Close()
 	}
 
-	return fs, nil
+	return fs, failures, nil
 }
 
 // OCI label keys (Finding #8.1)
@@ -566,12 +657,19 @@ const (
 // Distroless is identified by: (1) /etc/os-release with PRETTY_NAME or NAME containing "Distroless", or
 // (2) OCI image config labels with key/value containing "distroless".
 func (e *Extractor) detectOS(fs *Filesystem, imageConfig *v1.ConfigFile) OSInfo {
-	// 1. /etc/os-release (most Linux distros; Google distroless sets PRETTY_NAME="Distroless")
-	if content, err := fs.ReadFile("/etc/os-release"); err == nil {
+	// 1. os-release (most Linux distros; Google distroless sets PRETTY_NAME="Distroless").
+	// On Debian, Ubuntu and newer Alpine /etc/os-release is a symlink to ../usr/lib/os-release,
+	// and the layer filesystem keeps regular files only, so read the target too.
+	for _, path := range []string{"/etc/os-release", "/usr/lib/os-release"} {
+		content, err := fs.ReadFile(path)
+		if err != nil {
+			continue
+		}
 		osInfo := parseOSRelease(string(content))
+		osInfo.Distro = osInfo.Name
 		if isDistrolessFromOSRelease(string(content)) {
 			osInfo.Name = "distroless"
-			e.logger.Printf("   /etc/os-release suggests distroless (PRETTY_NAME or NAME)")
+			e.logger.Printf("   %s suggests distroless (PRETTY_NAME or NAME)", path)
 		}
 		return osInfo
 	}
@@ -672,6 +770,11 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 
 func (e *Extractor) shouldInvokeSyft(fortunaPkgCount int, osName string) bool {
 	if e == nil || e.syftAdapter == nil || !e.syftEnabled {
+		return false
+	}
+	// With Syft as the primary cataloger this path runs only after Syft already failed on
+	// the same image; a second run would only pull the image again from the registry.
+	if e.syftPrimary {
 		return false
 	}
 	osLower := strings.ToLower(strings.TrimSpace(osName))
@@ -1082,46 +1185,75 @@ func applySignatureHints(logger *log.Logger, pkgs []Package, imageTag string, im
 	return pkgs
 }
 
-// setOSPackagePURLs sets PURL pkg:deb/<distro>/name@version (or apk) for dpkg/apk packages
-// when PURL is empty, so Core matches OSV debian/ubuntu/alpine data (e.g. openssl 3.0.18-1~deb12u2).
+// setOSPackagePURLs sets spec PURLs for dpkg/apk packages that have none, in the same shape
+// Syft produces: the binary package name, the full version (Debian epoch included),
+// arch, distro (<id>-<version>) and upstream (the source package, which distro advisories
+// are keyed by), e.g. pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl.
 func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 	distro := strings.ToLower(strings.TrimSpace(osInfo.Name))
+	// Distroless is a flavour, not a distro: PURL namespaces must name the base distro
+	// (debian), or Core queries a "distroless" ecosystem that has no advisories.
+	if d := strings.ToLower(strings.TrimSpace(osInfo.Distro)); d != "" && d != "unknown" {
+		distro = d
+	}
+	distroVersion := strings.TrimSpace(osInfo.Version)
+	if distroVersion == "unknown" {
+		distroVersion = ""
+	}
 	for i := range pkgs {
 		p := &pkgs[i]
 		if p.PURL != "" {
 			continue
 		}
+		var d string
 		switch p.Type {
 		case "deb":
-			d := distro
-			if d == "" {
+			d = distro
+			if d == "" || d == "distroless" || d == "unknown" {
 				d = "debian"
 			}
-			nameForPURL := p.Name
-			if sp := strings.TrimSpace(p.SourcePackage); sp != "" {
-				nameForPURL = sp
-			}
-			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "deb", p.Version)
-			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, normalizedVersion)
-			if ep := strings.TrimSpace(p.Epoch); ep != "" && ep != "0" {
-				p.PURL = appendPURLQualifier(p.PURL, "epoch", ep)
-			}
-			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
+			if ep := strings.TrimSpace(p.Epoch); ep != "" && ep != "0" && !strings.Contains(p.Version, ":") {
+				p.Version = ep + ":" + p.Version
 			}
 		case "apk":
-			d := distro
-			if d == "" {
+			d = distro
+			if d == "" || d == "distroless" || d == "unknown" {
 				d = "alpine"
 			}
-			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "apk", p.Version)
-			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, normalizedVersion)
-			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
+		default:
+			continue
+		}
+		p.PURL = "pkg:" + p.Type + "/" + d + "/" + purlEscape(p.Name) + "@" + purlEscape(p.Version)
+		if a := strings.TrimSpace(p.Arch); a != "" {
+			p.PURL = appendPURLQualifier(p.PURL, "arch", purlEscape(a))
+		}
+		if distroVersion != "" {
+			p.PURL = appendPURLQualifier(p.PURL, "distro", purlEscape(d+"-"+distroVersion))
+		}
+		if up := strings.TrimSpace(p.SourcePackage); up != "" && up != p.Name {
+			if sv := strings.TrimSpace(p.SourceVersion); sv != "" && sv != p.Version {
+				up += "@" + sv
 			}
+			p.PURL = appendPURLQualifier(p.PURL, "upstream", purlEscape(up))
 		}
 	}
 	return pkgs
+}
+
+// purlEscape percent-encodes everything outside the PURL-safe set (so ":" in a Debian
+// epoch and "+" in "+deb12u1" survive parsing).
+func purlEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '-' || c == '_' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 func appendPURLQualifier(purl, key, value string) string {
@@ -1206,6 +1338,8 @@ type Package struct {
 	Arch          string
 	SourcePackage string // for OS packages (e.g., deb Source: openssl for binary libssl3)
 	SourceVersion string // parsed from Source field when available
+	Licenses      []string
+	CPEs          []string
 	PURL          string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
 	Source        string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
 	Confidence    string // "low" | "medium" | "high"
@@ -1225,6 +1359,8 @@ type RawSBOM struct {
 	SignatureVersion string
 	// GoVersion: toolchain used to build Go binaries (buildinfo / GOLANG_VERSION). Sent to Core for stdlib CVE matching.
 	GoVersion string
+	// Engine is "syft" or "fortuna" (the built-in parsers).
+	Engine string
 }
 
 // goVersionFromImageConfig reads GOLANG_VERSION / GO_VERSION from OCI config (common on official golang images).
@@ -1263,6 +1399,8 @@ func normalizeGoToolchainVersionForSBOM(s string) string {
 type OSInfo struct {
 	Name    string
 	Version string
+	// Distro is the os-release ID (e.g. "debian") even when Name is the "distroless" flavour.
+	Distro string
 }
 
 // Parser interface for package parsers

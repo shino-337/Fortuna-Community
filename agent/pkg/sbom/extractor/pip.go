@@ -150,6 +150,12 @@ func (p *PipParser) parseMetadata(content []byte) (Package, error) {
 
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		// Headers end at the first blank line; the long description after it may
+		// contain lines such as "Version: 2" that are not metadata.
+		if line == "" {
+			break
+		}
 		if strings.HasPrefix(line, "Name: ") {
 			pkg.Name = strings.TrimSpace(strings.TrimPrefix(line, "Name: "))
 		} else if strings.HasPrefix(line, "Version: ") {
