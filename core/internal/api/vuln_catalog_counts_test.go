@@ -9,14 +9,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// The catalog health counts the current versions of the versioned catalog; closed versions and
-// the legacy tables are not counted.
+// The catalog health counts the current versions of the versioned catalog; closed versions are
+// not counted.
 func TestCountVulnCatalogCountsCurrentVersions(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	for _, stmt := range []string{
-		`CREATE TABLE cves (id INTEGER PRIMARY KEY, updated_at DATETIME)`,
-		`INSERT INTO cves (id, updated_at) VALUES (1, '2024-01-01 00:00:00'), (2, '2024-01-02 00:00:00')`,
 		`CREATE TABLE vuln_advisories (advisory_id TEXT, valid_to_gen INTEGER)`,
 		`CREATE TABLE vuln_advisory_refs (advisory_id TEXT, ref_id TEXT, ref_kind TEXT, valid_to_gen INTEGER)`,
 		`CREATE TABLE vuln_affected (advisory_id TEXT, valid_to_gen INTEGER)`,

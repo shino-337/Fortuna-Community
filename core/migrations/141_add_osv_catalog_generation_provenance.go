@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -12,17 +11,17 @@ import (
 func Migration141_AddOSVCatalogGenerationProvenance(db *gorm.DB) error {
 	log.Println("[Migration 141] Adding catalog_generation_id to OSV mirror tables...")
 
-	if db.Migrator().HasTable("osv_vulnerabilities") && !db.Migrator().HasColumn(&models.OSVVulnerability{}, "catalog_generation_id") {
+	if db.Migrator().HasTable("osv_vulnerabilities") && !db.Migrator().HasColumn("osv_vulnerabilities", "catalog_generation_id") {
 		if err := db.Exec(`ALTER TABLE osv_vulnerabilities ADD COLUMN catalog_generation_id BIGINT NOT NULL DEFAULT 0`).Error; err != nil {
 			return fmt.Errorf("[Migration 141] add osv_vulnerabilities.catalog_generation_id: %w", err)
 		}
 	}
-	if db.Migrator().HasTable("osv_packages") && !db.Migrator().HasColumn(&models.OSVPackage{}, "catalog_generation_id") {
+	if db.Migrator().HasTable("osv_packages") && !db.Migrator().HasColumn("osv_packages", "catalog_generation_id") {
 		if err := db.Exec(`ALTER TABLE osv_packages ADD COLUMN catalog_generation_id BIGINT NOT NULL DEFAULT 0`).Error; err != nil {
 			return fmt.Errorf("[Migration 141] add osv_packages.catalog_generation_id: %w", err)
 		}
 	}
-	if db.Migrator().HasTable("osv_ranges") && !db.Migrator().HasColumn(&models.OSVRange{}, "catalog_generation_id") {
+	if db.Migrator().HasTable("osv_ranges") && !db.Migrator().HasColumn("osv_ranges", "catalog_generation_id") {
 		if err := db.Exec(`ALTER TABLE osv_ranges ADD COLUMN catalog_generation_id BIGINT NOT NULL DEFAULT 0`).Error; err != nil {
 			return fmt.Errorf("[Migration 141] add osv_ranges.catalog_generation_id: %w", err)
 		}

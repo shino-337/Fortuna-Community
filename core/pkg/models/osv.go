@@ -2,60 +2,6 @@ package models
 
 import "time"
 
-// OSVVulnerability stores high-level OSV vulnerability metadata.
-// This is a mirror table for OSV JSON, focused initially on Go ecosystem (P2-7).
-// Legacy catalog table: nothing reads or writes it since the versioned catalog
-// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
-type OSVVulnerability struct {
-	ID                  string    `gorm:"primaryKey;type:varchar(100)" json:"id"` // OSV ID, e.g. GO-2023-1234
-	Summary             string    `gorm:"type:text" json:"summary"`
-	Details             string    `gorm:"type:text" json:"details"`
-	Severity            string    `gorm:"type:varchar(20);index" json:"severity"`
-	CVSSScore           float64   `gorm:"type:decimal(4,1)" json:"cvssScore"`
-	PublishedAt         time.Time `json:"publishedAt"`
-	ModifiedAt          time.Time `json:"modifiedAt"`
-	Source              string    `gorm:"type:varchar(50);default:'osv'" json:"source"`
-	Aliases             string    `gorm:"type:text" json:"aliases"` // optional: JSON array of aliases (CVE, GHSA, etc.)
-	CatalogGenerationID uint      `gorm:"index;column:catalog_generation_id" json:"catalogGenerationId,omitempty"`
-}
-
-func (OSVVulnerability) TableName() string {
-	return "osv_vulnerabilities"
-}
-
-// OSVPackage represents (ecosystem, package_name) pairs affected by an OSV vulnerability.
-// Legacy catalog table: nothing reads or writes it since the versioned catalog
-// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
-type OSVPackage struct {
-	ID                  uint   `gorm:"primaryKey" json:"id"`
-	VulnID              string `gorm:"type:varchar(100);not null;index" json:"vulnId"`
-	Ecosystem           string `gorm:"type:varchar(50);not null;index" json:"ecosystem"`
-	PackageName         string `gorm:"type:varchar(255);not null;index" json:"packageName"`
-	EcosystemRelease    string `gorm:"type:varchar(64);not null;default:''" json:"ecosystemRelease,omitempty"` // "12" for Debian:12; "" when unscoped
-	CatalogGenerationID uint   `gorm:"index;column:catalog_generation_id" json:"catalogGenerationId,omitempty"`
-}
-
-func (OSVPackage) TableName() string {
-	return "osv_packages"
-}
-
-// OSVRange flattens OSV "ranges[].events" for a given package into a simple introduced/fixed/last_affected row.
-// Legacy catalog table: nothing reads or writes it since the versioned catalog
-// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
-type OSVRange struct {
-	ID                  uint   `gorm:"primaryKey" json:"id"`
-	PackageID           uint   `gorm:"not null;index" json:"packageId"`
-	RangeType           string `gorm:"type:varchar(20);not null" json:"rangeType"` // e.g. "SEMVER"
-	Introduced          string `gorm:"type:varchar(64)" json:"introduced"`
-	Fixed               string `gorm:"type:varchar(64)" json:"fixed"`
-	LastAffected        string `gorm:"type:varchar(64)" json:"lastAffected"`
-	CatalogGenerationID uint   `gorm:"index;column:catalog_generation_id" json:"catalogGenerationId,omitempty"`
-}
-
-func (OSVRange) TableName() string {
-	return "osv_ranges"
-}
-
 // GoModuleAlias maps an old/alias Go module path to the canonical one used in OSV (P2 alias resolver).
 // Example: github.com/coreos/etcd -> go.etcd.io/etcd.
 type GoModuleAlias struct {
