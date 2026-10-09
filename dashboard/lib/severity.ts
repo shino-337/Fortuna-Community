@@ -18,7 +18,52 @@ export const pathRiskLevel = (totalRisk: number): SeverityLevel => {
   return 'low';
 };
 
-const normalizeSeverity = (severity?: string): SeverityLevel | undefined => {
+/** CVSS band of a 0-10 base score (>=9 critical, >=7 high, >=4 medium, >0 low); undefined when unknown (<= 0). */
+export const cvssSeverity = (score?: number | null): SeverityLevel | undefined => {
+  if (score == null || Number.isNaN(score) || score <= 0) return undefined;
+  if (score >= 9) return 'critical';
+  if (score >= 7) return 'high';
+  if (score >= 4) return 'medium';
+  return 'low';
+};
+
+/** CVSS score for display: one decimal, or an em dash when the score is unknown (0 / missing). */
+export const formatCvss = (score?: number | null): string =>
+  score == null || Number.isNaN(score) || score <= 0 ? '—' : score.toFixed(1);
+
+/** Rank for sorting severities: critical 4 … low 1, unknown 0. */
+export const severityRank = (severity?: string): number => {
+  const s = (severity || '').toLowerCase();
+  if (s === 'critical' || s === 'very high' || s === 'veryhigh') return 4;
+  if (s === 'high') return 3;
+  if (s === 'medium' || s === 'moderate') return 2;
+  if (s === 'low') return 1;
+  return 0;
+};
+
+/** Label for where a finding's severity came from (cve_matches.severity_source). */
+export const severitySourceLabel = (source?: string): string | undefined => {
+  switch ((source || '').toLowerCase()) {
+    case '':
+      return undefined;
+    case 'vendor':
+      return 'vendor';
+    case 'advisory_cvss':
+      return 'advisory CVSS';
+    case 'nvd':
+      return 'NVD';
+    case 'cve_cvss':
+      return 'CVE CVSS';
+    case 'errata_cvss':
+      return 'errata CVSS';
+    case 'default':
+      return 'unrated (default medium)';
+    default:
+      return source;
+  }
+};
+
+const normalizeSeverity =(severity?: string): SeverityLevel | undefined => {
   if (!severity) return undefined;
   const s = severity.toLowerCase();
   return (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;

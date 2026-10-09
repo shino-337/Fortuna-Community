@@ -7,7 +7,7 @@ import { Card } from '../design-system/components/Card';
 import { FindingActions } from '../components/FindingActions';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2 } from 'lucide-react';
-import { getSeverityBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
+import { getSeverityBadgeClass, deriveUnifiedRiskLevelFromScore, formatCvss } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
 import { formatRiskFindingReference, insightTypeUiLabel } from '../lib/riskDisplay';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
@@ -238,8 +238,18 @@ export const RiskDetail: React.FC = () => {
             </div>
             <span className="rounded border border-border bg-surface-2 px-2 py-0.5 text-caption uppercase text-text">{statusLabel}</span>
             <span className="text-caption text-muted" title="Severity the rule or CVE assigns. The risk level above decides priority.">
-              Rule severity <span className="text-text capitalize">{hintSev || '—'}</span>
+              {insight.insightType === 'vulnerability' ? 'CVE severity' : 'Rule severity'} <span className="text-text capitalize">{hintSev || '—'}</span>
             </span>
+            {insight.insightType === 'vulnerability' ? (
+              <>
+                <span className="text-caption text-muted" title="CVSS base score of the vulnerability">
+                  CVSS <span className="text-text tabular-nums">{formatCvss(insight.cvss)}</span>
+                </span>
+                <span className="text-caption text-muted" title="First package version that fixes the vulnerability">
+                  Fixed in <span className="text-text font-mono">{insight.fixedVersion || 'no fixed version yet'}</span>
+                </span>
+              </>
+            ) : null}
             {insight.insightType ? (
               <span className="text-caption text-muted">
                 Type <span className="text-text">{insightTypeUiLabel(insight.insightType)}</span>

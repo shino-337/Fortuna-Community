@@ -105,6 +105,16 @@ function mapInsightAssignee(raw: Record<string, unknown>): Pick<Insight, 'assign
   };
 }
 
+/** Vulnerability insight extras: fixed version and CVSS (0 / missing = unknown) when the API sends them. */
+function mapInsightVulnFields(raw: Record<string, any>): Pick<Insight, 'fixedVersion' | 'cvss'> {
+  const fixed = raw.fixedVersion ?? raw.fixed_version;
+  const cvss = Number(raw.cvss ?? raw.cvssScore);
+  return {
+    fixedVersion: fixed != null && String(fixed).trim() ? String(fixed).trim() : undefined,
+    cvss: Number.isFinite(cvss) && cvss > 0 ? cvss : undefined,
+  };
+}
+
 function numberOr(value: unknown, fallback: number): number {
   if (value == null || value === '') return fallback;
   const n = Number(value);
@@ -1100,6 +1110,7 @@ export const api = {
             : insight.affected_version != null
               ? String(insight.affected_version)
               : undefined,
+        ...mapInsightVulnFields(insight),
         title: String(insight.title ?? ''),
         description: insight.description != null ? String(insight.description) : undefined,
         severity,
@@ -1309,6 +1320,7 @@ export const api = {
             : insight.affected_version != null
               ? String(insight.affected_version)
               : undefined,
+        ...mapInsightVulnFields(insight),
         title: insight.title,
         description: insight.description,
         severity,
@@ -2643,6 +2655,7 @@ export const api = {
             : i.affected_version != null
               ? String(i.affected_version)
               : undefined,
+        ...mapInsightVulnFields(i),
         title: String(i.title ?? ''),
         description: i.description != null ? String(i.description) : undefined,
         severity: (i.severity || 'medium').toLowerCase(),

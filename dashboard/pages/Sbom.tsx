@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import clsx from 'clsx';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
-import { PodSbom, PodSbomSummary, ThreatSummary } from '../types';
+import { MalwareMatch, PodSbom, PodSbomSummary, SbomComponent, ThreatSummary, Vulnerability } from '../types';
 import { Card } from '../design-system/components/Card';
 import { Badge } from '../design-system/components/Badge';
 import { FilterBar } from '../design-system/components/FilterBar';
@@ -10,9 +11,11 @@ import { Button } from '../components/ui/Button';
 import { DataFreshness } from '../components/DataFreshness';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLoading } from '../design-system/components/PageStatus';
-import { Package, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download, RefreshCw, ShieldCheck, ShieldQuestion } from 'lucide-react';
+import { Package, ChevronRight, ChevronDown, Info, Box, AlertTriangle, CheckCircle2, Download, RefreshCw, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
-import { getSeverityBorderClass } from '../lib/severity';
+import { cvssSeverity, formatCvss, getSeverityBorderClass, getSeverityTextClass, severityRank } from '../lib/severity';
+import { AdvisoryIconLink, AdvisoryLink, KevBadge, LowConfidenceBadge, ReportedBy, SeveritySourceNote } from '../components/VulnerabilityChips';
+import { onActivateKey } from '../lib/a11y';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { useNavigate } from 'react-router-dom';
 import { SbomMetaBadges } from '../components/SbomMetaBadges';
@@ -48,6 +51,156 @@ function compactDigest(digest?: string): string {
 function sbomIdentity(pod: Pick<PodSbomSummary, 'clusterId' | 'podId'>): string {
   return `${String(pod.clusterId ?? '').trim()}\u0000${pod.podId}`;
 }
+
+const SEVERITY_LEVELS = ['critical', 'high', 'medium', 'low'] as const;
+
+const isVulnerableComponent = (c: SbomComponent) => c.vulnerabilities.length > 0 || !!c.malwareMatch;
+
+const componentSeverityRank = (c: SbomComponent) =>
+  Math.max(severityRank(c.maxSeverity), ...c.vulnerabilities.map((v) => severityRank(v.severity)));
+
+/** Vulnerable components first: malware, then highest severity, then most findings, then name. */
+const compareComponents = (a: SbomComponent, b: SbomComponent) =>
+  Number(!!b.malwareMatch) - Number(!!a.malwareMatch) ||
+  componentSeverityRank(b) - componentSeverityRank(a) ||
+  b.vulnerabilities.length - a.vulnerabilities.length ||
+  a.name.localeCompare(b.name);
+
+const malwareSourceLabel = (source: string) => {
+  const s = source.trim().toLowerCase();
+  if (s.startsWith('aikido')) return 'Aikido';
+  if (s.startsWith('osv')) return 'OSV';
+  if (s.startsWith('ossf') || s.startsWith('openssf')) return 'OpenSSF';
+  return source.trim();
+};
+
+const formatMalwareConfidence = (confidence?: number) => {
+  if (confidence == null || Number.isNaN(confidence) || confidence <= 0) return '—';
+  return `${Math.round(confidence <= 1 ? confidence * 100 : confidence)}%`;
+};
+
+/** Long advisory text clamped to four lines with a Show more / Show less toggle. */
+const ExpandableDescription: React.FC<{ text: string }> = ({ text }) => {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [text, expanded]);
+  return (
+    <div className="bg-base/40 p-3 rounded-lg border border-border/50">
+      <p ref={ref} className={clsx('text-body text-text leading-relaxed whitespace-pre-line break-words', !expanded && 'line-clamp-4')}>
+        {text}
+      </p>
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-1 text-caption font-medium text-brand hover:underline"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const VulnerabilityCard: React.FC<{ vuln: Vulnerability }> = ({ vuln }) => {
+  const description = (vuln.description || '').trim();
+  const cvssLevel = cvssSeverity(vuln.cvssScore);
+  return (
+    <div className={`bg-surface/80 border rounded-xl p-4 ${getSeverityBorderClass(vuln.severity)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <AdvisoryLink id={vuln.id} className="min-w-0 break-all text-base font-mono font-bold text-text tracking-tight hover:text-brand hover:underline" />
+            <AdvisoryIconLink id={vuln.id} className="shrink-0" />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge severity={String(vuln.severity || '').toLowerCase()} uppercase>
+              {vuln.severity || 'unknown'}
+            </Badge>
+            <SeveritySourceNote source={vuln.severitySource} />
+            {vuln.exploitKnown && <KevBadge />}
+            {vuln.confidence === 'low' && <LowConfidenceBadge />}
+          </div>
+        </div>
+        <div className="bg-base/80 border border-border px-3 py-1.5 rounded-lg text-center shrink-0">
+          <div className="text-caption text-muted font-bold uppercase">CVSS Score</div>
+          <div className={clsx('text-lg font-black', cvssLevel ? getSeverityTextClass(cvssLevel) : 'text-muted')} title={cvssLevel ? undefined : 'No CVSS score published'}>
+            {formatCvss(vuln.cvssScore)}
+          </div>
+        </div>
+      </div>
+
+      <ReportedBy advisories={vuln.advisories} findingId={vuln.id} className="mb-3" />
+
+      {description ? (
+        <div className="mb-4">
+          <h5 className="text-caption font-bold text-muted mb-1 uppercase tracking-tighter">Description</h5>
+          <ExpandableDescription text={description} />
+        </div>
+      ) : null}
+
+      {vuln.fixedVersion ? (
+        <div className="flex items-center bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+          <CheckCircle2 size={14} className="text-emerald-500 mr-2 shrink-0" />
+          <span className="text-caption font-medium text-emerald-400 break-words min-w-0">
+            Remediation available: Update to version <span className="font-bold font-mono underline decoration-dotted break-all">{vuln.fixedVersion}</span> or higher.
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
+          <Info size={14} className="text-yellow-500 mr-2 shrink-0" />
+          <span className="text-caption font-medium text-yellow-400">
+            No fix version is listed for this finding. Monitor vendor security advisories.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MalwareEvidence: React.FC<{ name: string; version: string; match: MalwareMatch; className?: string }> = ({ name, version, match, className }) => {
+  const sources = Array.from(new Set((match.sources ?? []).map(malwareSourceLabel).filter(Boolean)));
+  const advisoryIds = (match.advisoryIds ?? []).filter((id) => id.trim());
+  return (
+    <div className={clsx('rounded-xl border border-red-800/60 bg-red-950/25 p-4', className)}>
+      <div className="flex items-center gap-2 text-caption font-bold text-red-200 uppercase tracking-widest mb-2">
+        <AlertTriangle size={14} className="text-red-400" />
+        Malicious package match
+      </div>
+      <p className="text-body text-text break-words">
+        <span className="font-mono text-text break-all">{name}@{version}</span>
+        {' '}is listed as a {match.reason === 'MALWARE' ? 'malicious package' : match.reason.toLowerCase()} by{' '}
+        {sources.length > 0 ? sources.join(', ') : 'a malicious-package feed'}.
+      </p>
+      <dl className="mt-3 grid gap-1 text-caption text-muted">
+        <div><dt className="inline text-muted">Reason: </dt><dd className="inline font-medium text-text">{match.reason}</dd></div>
+        {sources.length > 0 ? (
+          <div><dt className="inline text-muted">Source: </dt><dd className="inline text-text">{sources.join(', ')}</dd></div>
+        ) : null}
+        {advisoryIds.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1">
+            <dt className="inline text-muted">Advisories: </dt>
+            {advisoryIds.map((id) => (
+              <dd key={id} className="inline">
+                <AdvisoryLink id={id} className="font-mono text-red-200 underline decoration-dotted hover:text-brand" />
+              </dd>
+            ))}
+          </div>
+        ) : null}
+        {match.malwareFamily ? (
+          <div><dt className="inline text-muted">Family: </dt><dd className="inline text-text">{match.malwareFamily}</dd></div>
+        ) : null}
+        <div><dt className="inline text-muted">Confidence: </dt><dd className="inline text-text">{formatMalwareConfidence(match.confidence)}</dd></div>
+      </dl>
+    </div>
+  );
+};
 
 const ImageTrustStrip: React.FC<{ item?: Pick<PodSbomSummary, 'imageTrust' | 'imageDigest' | 'lifecycleState' | 'activePod'> | Pick<PodSbom, 'imageTrust' | 'imageDigest' | 'lifecycleState' | 'activePod'>; compact?: boolean }> = ({ item, compact }) => {
   if (!item) return null;
@@ -93,6 +246,8 @@ export const Sbom: React.FC = () => {
   const [podNameFilter, setPodNameFilter] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set());
+  /** null = default (on when the SBOM has any vulnerable component). */
+  const [vulnerableOnly, setVulnerableOnly] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [listUpdatedAt, setListUpdatedAt] = useState<Date | null>(null);
   const [threatSummary, setThreatSummary] = useState<ThreatSummary | null>(null);
@@ -113,6 +268,7 @@ export const Sbom: React.FC = () => {
       setSelectedDetail(null);
       setThreatSummary(null);
       setExpandedComponents(new Set());
+      setVulnerableOnly(null);
     }
 
     const [detailResult, threatResult] = await Promise.allSettled([
@@ -222,23 +378,28 @@ export const Sbom: React.FC = () => {
     void loadSelectedPodEvidence(pod);
   };
 
-  const getSeverityBorder = (severity: string) => {
-    return getSeverityBorderClass(severity);
-  };
-
-  const filteredComponents = selectedDetail?.components.filter((c) => {
-    const q = searchTerm.toLowerCase();
-    if (!q) return true;
-    return (
-      c.name.toLowerCase().includes(q) ||
-      (c.version && c.version.toLowerCase().includes(q)) ||
-      c.vulnerabilities.some((v) => v.id.toLowerCase().includes(q)) ||
-      (c.malwareMatch && (c.malwareMatch.reason?.toLowerCase().includes(q) || (c.malwareMatch.malwareFamily && c.malwareMatch.malwareFamily.toLowerCase().includes(q))))
-    );
-  }) || [];
+  const allComponents = selectedDetail?.components ?? [];
+  const hasVulnerableComponents = allComponents.some(isVulnerableComponent);
+  const vulnerableOnlyActive = vulnerableOnly ?? hasVulnerableComponents;
+  const trimmedSearch = searchTerm.trim().toLowerCase();
+  const filteredComponents = allComponents
+    .filter((c) => {
+      if (vulnerableOnlyActive && !isVulnerableComponent(c)) return false;
+      const q = trimmedSearch;
+      if (!q) return true;
+      return (
+        c.name.toLowerCase().includes(q) ||
+        (c.version && c.version.toLowerCase().includes(q)) ||
+        c.vulnerabilities.some((v) => v.id.toLowerCase().includes(q) || (v.advisories ?? []).some((a) => a.toLowerCase().includes(q))) ||
+        (c.malwareMatch && (c.malwareMatch.reason?.toLowerCase().includes(q) || (c.malwareMatch.malwareFamily && c.malwareMatch.malwareFamily.toLowerCase().includes(q)) || (c.malwareMatch.advisoryIds ?? []).some((a) => a.toLowerCase().includes(q))))
+      );
+    })
+    .sort(compareComponents);
+  const detailSummary = selectedDetail?.vulnerabilitySummary;
+  const totalFindings = detailSummary ? SEVERITY_LEVELS.reduce((acc, sev) => acc + (detailSummary[sev] ?? 0), 0) : undefined;
 
   if (loading && sbomList.length === 0 && !loadError) {
-    return <PageLoading message="Scanning SBOM repositories…" className="min-h-[60dvh]" />;
+    return <PageLoading message="Loading SBOM inventory…" className="min-h-[60dvh]" />;
   }
 
   return (
@@ -331,20 +492,25 @@ export const Sbom: React.FC = () => {
                 : '—';
               const statusLabel = pod.podStatus?.trim() || '—';
               const isSelected = selectedPod != null && sbomIdentity(selectedPod) === sbomIdentity(pod);
+              const hasFindings = SEVERITY_LEVELS.some((sev) => (summary[sev] ?? 0) > 0);
               return (
-              <div 
-                key={sbomIdentity(pod)} 
+              <div
+                key={sbomIdentity(pod)}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
                 onClick={() => handleSelectPod(pod)}
-                className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 group ${
+                onKeyDown={onActivateKey(() => handleSelectPod(pod))}
+                className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
                   isSelected ? UI_SELECTABLE_ACTIVE : UI_SELECTABLE_IDLE
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center">
-                    <Box className={`w-4 h-4 mr-2 transition-colors ${isSelected ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
-                    <span className="font-bold text-text text-body">{pod.podName}</span>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex min-w-0 items-center">
+                    <Box className={`w-4 h-4 mr-2 shrink-0 transition-colors ${isSelected ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
+                    <span className="font-bold text-text text-body break-all">{pod.podName}</span>
                   </div>
-                  <ChevronRight size={14} className={`transition-transform duration-200 ${isSelected ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
+                  <ChevronRight size={14} aria-hidden className={`shrink-0 transition-transform duration-200 ${isSelected ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
                 </div>
                 <div className="text-caption text-muted truncate mb-1 font-mono">{pod.image}</div>
                 <ImageTrustStrip item={pod} compact />
@@ -360,15 +526,16 @@ export const Sbom: React.FC = () => {
                   <span className="mx-1.5">·</span>
                   <span title="Pod phase (synced)">Phase: {statusLabel}</span>
                 </div>
-                <div className="flex gap-2">
-                  {summary.critical > 0 && (
-                    <span className="bg-red-500/10 text-red-400 px-2 py-0.5 rounded text-caption font-bold">
-                      {summary.critical} Critical
-                    </span>
-                  )}
-                  {summary.high > 0 && (
-                    <span className="bg-orange-500/10 text-orange-400 px-2 py-0.5 rounded text-caption font-bold">
-                      {summary.high} High
+                <div className="flex flex-wrap gap-1.5">
+                  {hasFindings ? (
+                    SEVERITY_LEVELS.filter((sev) => (summary[sev] ?? 0) > 0).map((sev) => (
+                      <Badge key={sev} severity={sev} uppercase={false} className="capitalize">
+                        {summary[sev]} {sev}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-caption text-muted">
+                      <CheckCircle2 size={12} className="text-emerald-500" aria-hidden /> No findings
                     </span>
                   )}
                 </div>
@@ -382,8 +549,8 @@ export const Sbom: React.FC = () => {
         <div className="lg:col-span-2 flex flex-col min-h-0 lg:max-h-[calc(100dvh-14rem)] overflow-y-auto space-y-6">
           {selectedPod ? (
             <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-              <Card 
-                title={`SBOM: ${selectedPod.podName}`} 
+              <Card
+                title={`SBOM: ${selectedPod.podName}`}
                 description={[
                   `Namespace: ${selectedPod.namespace}`,
                   `Last Scan: ${selectedPod.lastScan ? new Date(selectedPod.lastScan).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}`,
@@ -413,7 +580,7 @@ export const Sbom: React.FC = () => {
                 {detailLoading && (
                   <div className="flex items-center text-body text-muted mb-4">
                     <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Loading SBOM detail...
+                    Loading SBOM detail…
                   </div>
                 )}
                 {detailIssue ? (
@@ -474,7 +641,7 @@ export const Sbom: React.FC = () => {
                   </div>
                 )}
                 <div className="mb-6 flex flex-col gap-4 rounded-lg border border-border bg-base p-4 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center space-x-6">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3 md:flex-nowrap md:shrink-0">
                     <div className="text-center">
                       <div className="ui-micro-label">Components</div>
                       <div className="text-xl font-bold text-text">{detailIssue && !selectedDetail ? '—' : selectedDetail?.components.length ?? '—'}</div>
@@ -482,12 +649,32 @@ export const Sbom: React.FC = () => {
                     <div className="h-8 w-px bg-surface-2"></div>
                     <div className="text-center">
                       <div className="ui-micro-label">Vulnerabilities</div>
-                      <div className="text-xl font-bold text-red-500">
-                        {detailIssue && !selectedDetail ? '—' : selectedDetail?.components.reduce((acc, c) => acc + c.vulnerabilities.length, 0) ?? '—'}
+                      <div className={clsx('text-xl font-bold', totalFindings ? 'text-error' : 'text-text')}>
+                        {detailIssue && !selectedDetail ? '—' : totalFindings ?? '—'}
+                      </div>
+                    </div>
+                    <div className="h-8 w-px bg-surface-2"></div>
+                    <div className="text-center">
+                      <div className="ui-micro-label">Vulnerable packages</div>
+                      <div className="text-xl font-bold text-text">
+                        {detailIssue && !selectedDetail ? '—' : selectedDetail?.vulnerablePackageCount ?? '—'}
                       </div>
                     </div>
                   </div>
-                  <p className="text-caption text-muted-2">Use toolbar search to filter packages and CVEs in this pod.</p>
+                  <div className="flex min-w-0 flex-col gap-2 md:items-end md:text-right">
+                    {selectedDetail && allComponents.length > 0 ? (
+                      <label className="flex items-center gap-2 text-body text-text cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={vulnerableOnlyActive}
+                          onChange={(e) => setVulnerableOnly(e.target.checked)}
+                          className="rounded border-border bg-surface-2 text-brand shrink-0"
+                        />
+                        Vulnerable only
+                      </label>
+                    ) : null}
+                    <p className="text-caption text-muted-2">Use toolbar search to filter packages, CVEs and advisories in this pod.</p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -496,30 +683,45 @@ export const Sbom: React.FC = () => {
                     const isExpanded = expandedComponents.has(compKey);
                     const vulnTotal = comp.vulnerabilities.length;
                     const canExpand = vulnTotal > 0 || !!comp.malwareMatch;
-                    
+
+                    const compSeverity = SEVERITY_LEVELS[4 - componentSeverityRank(comp)];
+                    const headerContentId = `sbom-component-${compKey}`;
                     return (
-                      <div key={compKey} className={`bg-surface/50 border rounded-lg overflow-hidden transition-all duration-200 ${isExpanded ? 'border-border' : 'border-border'}`}>
+                      <div key={compKey} className="bg-surface/50 border border-border rounded-lg overflow-hidden transition-all duration-200">
                         {/* Summary Header */}
-                        <div 
-                          className={`p-4 flex justify-between items-center transition-colors group ${canExpand ? 'cursor-pointer hover:bg-surface/80' : ''}`}
+                        <div
+                          className={clsx(
+                            'p-4 flex flex-wrap justify-between items-center gap-3 transition-colors group',
+                            canExpand && 'cursor-pointer hover:bg-surface/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60',
+                          )}
                           onClick={() => canExpand && toggleExpand(compKey)}
+                          {...(canExpand
+                            ? {
+                                role: 'button',
+                                tabIndex: 0,
+                                'aria-expanded': isExpanded,
+                                'aria-controls': headerContentId,
+                                onKeyDown: onActivateKey(() => toggleExpand(compKey)),
+                              }
+                            : {})}
                         >
-                          <div className="flex items-center space-x-3">
-                            <div className={`p-2 rounded-lg ${
+                          <div className="flex min-w-0 flex-1 basis-56 items-center gap-3">
+                            <div className={clsx(
+                              'p-2 rounded-lg shrink-0',
                               comp.malwareMatch ? 'bg-red-500/20 text-red-300 ring-1 ring-red-700' :
-                              vulnTotal > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
-                            }`}>
-                              {comp.malwareMatch ? <AlertTriangle size={18} /> : <Package size={18} />}
+                              vulnTotal > 0 ? clsx('bg-surface-2', getSeverityTextClass(compSeverity)) : 'bg-emerald-500/10 text-emerald-400',
+                            )}>
+                              {comp.malwareMatch ? <AlertTriangle size={18} aria-hidden /> : <Package size={18} aria-hidden />}
                             </div>
-                            <div>
-                              <div className="flex items-center">
-                                <span className="font-bold text-text">{comp.name}</span>
-                                <span className="ml-2 text-caption text-muted bg-surface-2 px-1.5 py-0.5 rounded font-mono">v{comp.version}</span>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                                <span className="font-bold text-text break-all">{comp.name}</span>
+                                <span className="text-caption text-muted bg-surface-2 px-1.5 py-0.5 rounded font-mono break-all">v{comp.version}</span>
                               </div>
                               <div className="text-caption text-muted uppercase mt-1 tracking-wider">{comp.type} {comp.language ? `• ${comp.language}` : ''}</div>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-4">
+                          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-4">
                             {comp.malwareMatch && (
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-caption font-bold uppercase tracking-wide ${
                                 comp.malwareMatch.reason === 'MALWARE'
@@ -533,8 +735,8 @@ export const Sbom: React.FC = () => {
                               </span>
                             )}
                             {vulnTotal > 0 ? (
-                              <div className="flex gap-1">
-                                {Array.from(new Set(comp.vulnerabilities.map((v) => v.severity))).map((sev) => (
+                              <div className="flex flex-wrap gap-1">
+                                {Array.from(new Set(comp.vulnerabilities.map((v) => v.severity))).sort((a, b) => severityRank(b) - severityRank(a)).map((sev) => (
                                   <Badge key={sev as string} severity={String(sev).toLowerCase()} uppercase>
                                     {String(sev)}
                                   </Badge>
@@ -546,91 +748,30 @@ export const Sbom: React.FC = () => {
                               </span>
                             ) : (
                               <span className="flex items-center text-caption text-emerald-500 font-medium">
-                                <CheckCircle2 size={14} className="mr-1" /> Secure
+                                <CheckCircle2 size={14} className="mr-1" aria-hidden /> No known vulnerabilities
                               </span>
                             )}
                             {canExpand && (
-                              isExpanded ? <ChevronDown size={18} className="text-muted" /> : <ChevronRight size={18} className="text-muted-2 group-hover:text-muted transition-colors" />
+                              isExpanded ? <ChevronDown size={18} className="text-muted" aria-hidden /> : <ChevronRight size={18} className="text-muted-2 group-hover:text-muted transition-colors" aria-hidden />
                             )}
                           </div>
                         </div>
 
                         {/* Detailed Expansion */}
                         {isExpanded && canExpand && (
-                          <div className="p-5 bg-base/40 border-t border-border animate-in slide-in-from-top-2 duration-200">
+                          <div id={headerContentId} className="p-3 sm:p-5 bg-base/40 border-t border-border animate-in slide-in-from-top-2 duration-200">
                             {comp.malwareMatch && (
-                              <div className="mb-6 rounded-xl border border-red-800/60 bg-red-950/25 p-4">
-                                <div className="flex items-center gap-2 text-caption font-bold text-red-200 uppercase tracking-widest mb-2">
-                                  <AlertTriangle size={14} className="text-red-400" />
-                                  Malware DB match
-                                </div>
-                                <p className="text-body text-text">
-                                  <span className="font-mono text-text">{comp.name}@{comp.version}</span>
-                                  {' '}is listed in the Fortuna malware package database.
-                                </p>
-                                <dl className="mt-3 grid gap-1 text-caption text-muted">
-                                  <div><dt className="inline text-muted">Reason: </dt><dd className="inline font-medium text-text">{comp.malwareMatch.reason}</dd></div>
-                                  {comp.malwareMatch.malwareFamily ? (
-                                    <div><dt className="inline text-muted">Family: </dt><dd className="inline text-text">{comp.malwareMatch.malwareFamily}</dd></div>
-                                  ) : null}
-                                  <div><dt className="inline text-muted">Confidence: </dt><dd className="inline text-text">{comp.malwareMatch.confidence}</dd></div>
-                                </dl>
-                              </div>
+                              <MalwareEvidence name={comp.name} version={comp.version} match={comp.malwareMatch} className={vulnTotal > 0 ? 'mb-6' : undefined} />
                             )}
                             {vulnTotal > 0 && (
                              <>
                              <div className="flex items-center mb-4 text-caption font-bold text-muted uppercase tracking-widest">
-                               <AlertTriangle size={12} className="mr-2 text-orange-500" />
+                               <AlertTriangle size={12} className="mr-2 text-orange-500" aria-hidden />
                                Detected Security Vulnerabilities ({vulnTotal})
                              </div>
                              <div className="space-y-4">
                                 {comp.vulnerabilities.map(vuln => (
-                                  <div key={vuln.id} className={`bg-surface/80 border rounded-xl p-4 ${getSeverityBorder(vuln.severity)}`}>
-                                    <div className="flex items-start justify-between mb-3">
-                                      <div className="flex flex-col">
-                                        <div className="flex items-center">
-                                          <span className="text-base font-mono font-bold text-text tracking-tight">{vuln.id}</span>
-                                          <a href={`https://www.cve.org/CVERecord?id=${encodeURIComponent(vuln.id)}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-muted-2 hover:text-brand transition-colors">
-                                            <ExternalLink size={14} />
-                                          </a>
-                                        </div>
-                                        <div className="mt-1">
-                                          <Badge severity={String(vuln.severity).toLowerCase()} uppercase>
-                                            {vuln.severity}
-                                          </Badge>
-                                        </div>
-                                      </div>
-                                      <div className="bg-base/80 border border-border px-3 py-1.5 rounded-lg text-center">
-                                        <div className="text-caption text-muted font-bold uppercase">CVSS Score</div>
-                                        <div className={`text-lg font-black ${vuln.cvssScore >= 7 ? 'text-red-500' : vuln.cvssScore >= 4 ? 'text-orange-500' : 'text-yellow-500'}`}>
-                                          {vuln.cvssScore.toFixed(1)}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="mb-4">
-                                      <h5 className="text-caption font-bold text-muted mb-1 uppercase tracking-tighter">Description</h5>
-                                      <p className="text-body text-text leading-relaxed bg-base/40 p-3 rounded-lg border border-border/50">
-                                        {vuln.description}
-                                      </p>
-                                    </div>
-
-                                    {vuln.fixedVersion ? (
-                                      <div className="flex items-center bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
-                                        <CheckCircle2 size={14} className="text-emerald-500 mr-2 shrink-0" />
-                                        <span className="text-caption font-medium text-emerald-400">
-                                          Remediation available: Update to version <span className="font-bold font-mono underline decoration-dotted">{vuln.fixedVersion}</span> or higher.
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
-                                        <Info size={14} className="text-yellow-500 mr-2 shrink-0" />
-                                        <span className="text-caption font-medium text-yellow-400">
-                                          No fix version is listed for this finding. Monitor vendor security advisories.
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
+                                  <VulnerabilityCard key={vuln.id} vuln={vuln} />
                                 ))}
                              </div>
                              </>
@@ -641,7 +782,13 @@ export const Sbom: React.FC = () => {
                     );
                   }) : (
                     <div className="p-8 text-center text-muted border border-dashed border-border rounded-xl">
-                      No components found matching your search.
+                      {!selectedDetail
+                        ? null
+                        : allComponents.length === 0
+                        ? 'This SBOM has no packages.'
+                        : trimmedSearch
+                        ? 'No components match your search.'
+                        : 'No vulnerable components in this SBOM. Turn off “Vulnerable only” to list every package.'}
                     </div>
                   )}
                 </div>

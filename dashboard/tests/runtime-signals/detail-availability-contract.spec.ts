@@ -397,7 +397,7 @@ test('SBOM detail 503 is unavailable and is never projected as zero components',
   await page.goto(`${fixture}?path=/sbom`);
   await expect(page.getByText('SBOM detail temporarily unavailable', { exact: true })).toBeVisible();
   await expect(page.getByText('Components', { exact: true }).locator('..')).toContainText('—');
-  await expect(page.getByText(/No components found matching your search/)).toHaveCount(0);
+  await expect(page.getByText(/No components match your search|This SBOM has no packages/)).toHaveCount(0);
 });
 
 
