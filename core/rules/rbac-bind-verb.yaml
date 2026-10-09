@@ -19,7 +19,7 @@ tags:
   - rbac
   - binding
   # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
-  - T1612
+  - T1098.006
   # Privilege escalation mapping
   - T1068
 

@@ -23,5 +23,4 @@ tags:
   - host-namespaces
   # MITRE ATT&CK for Containers: Host namespace exposure
   - T1614      # hostNetwork
-  - T1611.001  # hostPID
-  - T1611.002  # hostIPC
+  - T1611      # hostPID / hostIPC (Escape to Host; T1611 has no sub-techniques)

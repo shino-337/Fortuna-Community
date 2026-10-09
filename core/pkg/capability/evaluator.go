@@ -259,14 +259,15 @@ func EvaluatePod(ctx context.Context, db *gorm.DB, pod *models.Pod) ([]Capabilit
 		automount = *pod.AutomountServiceAccountToken
 	}
 
-	// CTRL_CONTROL_PLANE_POD (standardized ID - keep as is)
+	// CTRL_CONTROL_PLANE_POD (standardized ID - keep as is). Running in
+	// kube-system is placement, not an ATT&CK technique (T1496 Resource
+	// Hijacking does not apply), so no MITRE mapping.
 	if pod.Namespace == "kube-system" {
 		caps = append(caps, Capability{
 			ID:       CTRL_CONTROL_PLANE_POD,
 			Group:    "CTRL",
 			Severity: "MEDIUM",
 			Evidence: map[string]interface{}{"namespace": pod.Namespace},
-			Mitre:    []string{"T1496"},
 		})
 	}
 
@@ -362,7 +363,9 @@ func EvaluatePod(ctx context.Context, db *gorm.DB, pod *models.Pod) ([]Capabilit
 			Group:    "API",
 			Severity: "HIGH",
 			Evidence: rbacAnalysis.Evidence,
-			Mitre:    []string{"T1609"},
+			// T1098.006 Additional Container Cluster Roles. T1609 (Container
+			// Administration Command) is pods/exec, not RBAC write.
+			Mitre: []string{"T1098.006"},
 		})
 	}
 

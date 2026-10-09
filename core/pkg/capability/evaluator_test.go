@@ -167,6 +167,18 @@ func TestEvaluatePod_ControlPlaneNamespace(t *testing.T) {
 	if _, ok := got[CTRL_CONTROL_PLANE_POD]; !ok {
 		t.Fatalf("expected CTRL_CONTROL_PLANE_POD, got %v", got)
 	}
+	if m := capabilityMitre(caps, CTRL_CONTROL_PLANE_POD); len(m) != 0 {
+		t.Fatalf("kube-system placement must not map to a MITRE technique (was T1496), got %v", m)
+	}
+}
+
+func capabilityMitre(caps []Capability, id string) []string {
+	for _, c := range caps {
+		if c.ID == id {
+			return c.Mitre
+		}
+	}
+	return nil
 }
 
 func TestEvaluatePod_RuntimeProbeSensitiveHostPath(t *testing.T) {
@@ -243,6 +255,9 @@ func TestEvaluatePod_APIWriteAccess(t *testing.T) {
 	got := capabilityIDs(caps)
 	if _, ok := got[API_RBAC_WRITE_CLUSTER]; !ok {
 		t.Fatalf("expected API_RBAC_WRITE_CLUSTER, got %v", got)
+	}
+	if m := capabilityMitre(caps, API_RBAC_WRITE_CLUSTER); len(m) != 1 || m[0] != "T1098.006" {
+		t.Fatalf("RBAC write must map to T1098.006 (not T1609), got %v", m)
 	}
 }
 

@@ -127,6 +127,7 @@ var (
 	_ = Migration158_CVEMatchAdvisories
 	_ = Migration159_MalwareMatchSources
 	_ = Migration160_DropLegacyVulnTables
+	_ = Migration161_FixMitreMappings
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -367,6 +368,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration158_CVEMatchAdvisories,         // CVE: one finding per CVE with its matched advisories
 		Migration159_MalwareMatchSources,        // Malware: one finding merging curated feeds and OSV MAL advisories
 		Migration160_DropLegacyVulnTables,       // CVE: drop cves, package_vulnerabilities and the OSV mirror tables
+		Migration161_FixMitreMappings,           // Attack paths: correct stored MITRE IDs (T1611 sub-techniques, T1610/T1612/T1496 misuse)
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

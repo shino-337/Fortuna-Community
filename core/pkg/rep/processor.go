@@ -93,16 +93,16 @@ func classifySignal(syscall, target, capabilityName, runtimeSource, sourceRule s
 	runtimeSource = strings.ToLower(strings.TrimSpace(runtimeSource))
 
 	if isProcRootPivot(syscall, target) {
-		return "PROC_ROOT_PIVOT", "T1611.001", 90
+		return "PROC_ROOT_PIVOT", "T1611", 90
 	}
 	if isFSEscapeAttempt(syscall, target) {
-		return "FS_ESCAPE_ATTEMPT", "T1610", 95
+		return "FS_ESCAPE_ATTEMPT", "T1611", 95
 	}
 	if isNamespaceEscape(syscall, target) {
 		return "NAMESPACE_ESCAPE", "T1055", 85
 	}
 	if isCapabilityMisuse(syscall, capabilityName, db, ctx, podUID) {
-		return "CAPABILITY_MISUSE", "T1611.002", 60
+		return "CAPABILITY_MISUSE", "T1611", 60
 	}
 
 	// Falco: capability fields may not exist, so map exec/connect into Fortuna runtime-signals

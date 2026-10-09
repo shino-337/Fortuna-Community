@@ -1,6 +1,8 @@
 package rep
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/fortuna/core/pkg/models"
@@ -80,5 +82,24 @@ func TestClassifyEventToSignal_UsesSharedHeuristics(t *testing.T) {
 	}
 	if st, _, _ := classifyEventToSignal(&models.RuntimeEvent{Syscall: "execve", TargetPath: "/usr/bin/ssh host", Runtime: "falco"}); st == "SUSPICIOUS_EXEC_FROM_SNAPSHOT" {
 		t.Fatal("ssh must not be a suspicious exec")
+	}
+}
+
+func TestClassifySignal_MitreIDsExist(t *testing.T) {
+	for _, tc := range []struct {
+		syscall, target, wantSignal string
+	}{
+		{"openat", "/proc/1/root", "PROC_ROOT_PIVOT"},
+		{"mount", "/proc", "FS_ESCAPE_ATTEMPT"},
+	} {
+		sig, mitre, _ := classifySignal(tc.syscall, tc.target, "", "", "", nil, context.Background(), "")
+		if sig != tc.wantSignal || mitre != "T1611" {
+			t.Errorf("%s %s: got %s/%s, want %s/T1611", tc.syscall, tc.target, sig, mitre, tc.wantSignal)
+		}
+	}
+	for _, g := range falcoRulePatternGroups {
+		if strings.HasPrefix(g.out.Mitre, "T1611.") || g.out.Mitre == "T1610" {
+			t.Errorf("taxonomy group %s uses invalid/misapplied MITRE %s", g.out.SignalType, g.out.Mitre)
+		}
 	}
 }

@@ -38,7 +38,7 @@ var falcoRulePatternGroups = []falcoRulePatternGroup{
 			SignalType: "FS_ESCAPE_ATTEMPT",
 			Category:   "ESCAPE",
 			Confidence: 0.9,
-			Mitre:      "T1610",
+			Mitre:      "T1611",
 			BaseScore:  72,
 		},
 	},

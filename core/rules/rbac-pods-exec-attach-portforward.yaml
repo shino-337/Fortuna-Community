@@ -25,7 +25,7 @@ tags:
   - exec
   - portforward
   # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
-  - T1612
+  - T1609
   # Command and Scripting Interpreter (best-effort for exec capability)
   - T1059
 
