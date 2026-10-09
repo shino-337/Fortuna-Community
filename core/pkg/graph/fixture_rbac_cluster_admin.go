@@ -8,15 +8,16 @@ func RbacOnlyClusterAdminFixtureGraph() *AttackGraph {
 		podID = "fixture-rbac-pod-1"
 		saID  = "fixture-rbac-sa-1"
 		crbID = "fixture-rbac-crb"
-		crID  = "role:cluster-admin"
 	)
+	crID := rbacRoleNodeID("ClusterRole", "", "cluster-admin")
 	g.AddNode(GraphNode{ID: podID, Type: NodeTypePod, Namespace: "ns-rbac", Label: "workload"})
 	g.AddNode(GraphNode{ID: saID, Type: NodeTypeServiceAccount, Namespace: "ns-rbac", Label: "default"})
 	g.AddEdge(GraphEdge{From: podID, To: saID, Type: EdgeTypeServiceAccount, Exploitability: 0.92})
 
 	g.AddNode(GraphNode{ID: crbID, Type: NodeTypeClusterBinding, Namespace: "", Label: "rbac:fixture"})
 	g.AddNode(GraphNode{ID: crID, Type: NodeTypeClusterRole, Namespace: "", Label: "cluster-admin",
-		SemanticCaps: []string{"IDENTITY_FORGE"},
+		SemanticCaps:   []string{"IDENTITY_FORGE"},
+		PrivilegeLevel: 5,
 	})
 	g.AddEdge(GraphEdge{From: saID, To: crbID, Type: EdgeTypeRbacBinding, Exploitability: 0.91})
 	g.AddEdge(GraphEdge{From: crbID, To: crID, Type: EdgeTypeGrantsRole, Exploitability: 0.9})
@@ -42,13 +43,7 @@ func AttackPathsFromRbacOnlyClusterAdminFixture(startPod string) []AttackPath {
 		targetTypes,
 		true,
 		opts,
-		func(edge GraphEdge, from, to GraphNode) bool {
-			if from.Namespace != "" && to.Namespace != "" && from.Namespace != to.Namespace &&
-				edge.Type != EdgeTypeRbacBinding && edge.Type != EdgeTypeGrantsRole {
-				return false
-			}
-			return true
-		},
+		relationalEdgeFeasible,
 	)
 	return convertGraphPathsToAttackPaths(gps, g)
 }

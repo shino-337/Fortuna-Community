@@ -461,10 +461,11 @@ func chainNodeTarget(ch AttackChain, paths []pathNormalized) string {
 }
 
 func roleFromFinalTarget(ft string) string {
-	// FinalTarget format: "cluster_role:role:cluster-admin"
+	// FinalTarget format: "<node type>:<role node ID>", e.g.
+	// "cluster_role:role:ClusterRole:cluster-admin".
 	parts := strings.SplitN(ft, ":", 2)
 	if len(parts) == 2 {
-		return parts[1]
+		return roleNameFromNodeID(parts[1])
 	}
 	return ft
 }

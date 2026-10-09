@@ -2,29 +2,32 @@ package graph
 
 // EscapeClusterAdminFixtureGraph builds a minimal in-memory graph used by golden tests:
 // pod→SA→RBAC→cluster-admin plus pod→hostPath capability→node (escape).
-// Pod and capability share namespace so cap→node edges pass production feasibility checks.
+// Node IDs, namespaces and the feasibility filter are the production ones
+// (clusterNodeGraphNode, rbacRoleNodeID, relationalEdgeFeasible): the node is
+// cluster-scoped and the workload lives outside kube-system, as in a real cluster.
 func EscapeClusterAdminFixtureGraph() *AttackGraph {
 	g := NewAttackGraph()
 	const (
-		podID  = "fixture-pod-1"
-		saID   = "fixture-sa-1"
-		capID  = "cap:fixture-pod-1:ESC_HOSTPATH_NODE"
-		nodeID = "node:worker-1"
-		crbID  = "fixture-crb-admin"
-		crID   = "role:cluster-admin"
+		podID = "fixture-pod-1"
+		saID  = "fixture-sa-1"
+		capID = "cap:fixture-pod-1:ESC_HOSTPATH_NODE"
+		crbID = "fixture-crb-admin"
 	)
+	nodeID := clusterNodeID("worker-1")
+	crID := rbacRoleNodeID("ClusterRole", "", "cluster-admin")
 	g.AddNode(GraphNode{ID: podID, Type: NodeTypePod, Namespace: "ns-fix", Label: "workload"})
 	g.AddNode(GraphNode{ID: saID, Type: NodeTypeServiceAccount, Namespace: "ns-fix", Label: "default"})
 	g.AddEdge(GraphEdge{From: podID, To: saID, Type: EdgeTypeServiceAccount, Exploitability: 0.92})
 
 	g.AddNode(GraphNode{ID: capID, Type: NodeTypeCapability, Namespace: "ns-fix", Label: "ESC_HOSTPATH_NODE"})
 	g.AddEdge(GraphEdge{From: podID, To: capID, Type: EdgeTypeHostAccess, Exploitability: 0.88})
-	g.AddNode(GraphNode{ID: nodeID, Type: NodeTypeNode, Namespace: "ns-fix", Label: "worker-1"})
+	g.AddNode(clusterNodeGraphNode("worker-1"))
 	g.AddEdge(GraphEdge{From: capID, To: nodeID, Type: EdgeTypeLateralMove, Exploitability: 0.88})
 
 	g.AddNode(GraphNode{ID: crbID, Type: NodeTypeClusterBinding, Namespace: "", Label: "system:controller:fixture"})
 	g.AddNode(GraphNode{ID: crID, Type: NodeTypeClusterRole, Namespace: "", Label: "cluster-admin",
-		SemanticCaps: []string{"IDENTITY_FORGE"},
+		SemanticCaps:   []string{"IDENTITY_FORGE"},
+		PrivilegeLevel: 5,
 	})
 	g.AddEdge(GraphEdge{From: saID, To: crbID, Type: EdgeTypeRbacBinding, Exploitability: 0.91})
 	g.AddEdge(GraphEdge{From: crbID, To: crID, Type: EdgeTypeGrantsRole, Exploitability: 0.9})
@@ -51,13 +54,7 @@ func AttackPathsFromEscapeClusterAdminFixture(startPod string) []AttackPath {
 		targetTypes,
 		true,
 		opts,
-		func(edge GraphEdge, from, to GraphNode) bool {
-			if from.Namespace != "" && to.Namespace != "" && from.Namespace != to.Namespace &&
-				edge.Type != EdgeTypeRbacBinding && edge.Type != EdgeTypeGrantsRole {
-				return false
-			}
-			return true
-		},
+		relationalEdgeFeasible,
 	)
 	return convertGraphPathsToAttackPaths(gps, g)
 }
