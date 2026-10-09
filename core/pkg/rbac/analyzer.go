@@ -68,7 +68,7 @@ type DerivedCapability struct {
 
 // DeriveCapabilities extracts semantic capabilities from RBAC policy rules.
 // Mapping: secrets get→SECRET_READ, pods create→WORKLOAD_CREATE,
-// pods/exec→EXEC_ACCESS, nodes/proxy→NODE_PROXY, csr approve→CERT_ISSUE.
+// pods/exec|attach→EXEC_ACCESS, nodes/proxy (any verb)→NODE_PROXY, csr approve→CERT_ISSUE.
 func DeriveCapabilities(rulesJSON string) []DerivedCapability {
 	if rulesJSON == "" || rulesJSON == "null" {
 		return nil
@@ -96,10 +96,12 @@ func DeriveCapabilities(rulesJSON string) []DerivedCapability {
 		if (contains(r.Verbs, "create") || hasWild) && containsAny(r.Resources, "pods", "deployments", "daemonsets", "jobs", "cronjobs", "statefulsets", "replicasets", "*") {
 			add("WORKLOAD_CREATE", scope)
 		}
-		if containsAny(r.Resources, "pods/exec") && (containsAny(r.Verbs, "create", "get") || hasWild) {
+		if grantsPodExec(r.Verbs, r.Resources) {
 			add("EXEC_ACCESS", scope)
 		}
-		if containsAny(r.Resources, "nodes/proxy", "nodes") && (containsAny(r.Verbs, "create", "get") || hasWild) {
+		// Only the nodes/proxy subresource reaches the kubelet; get on nodes
+		// just reads Node objects.
+		if grantsNodeProxy(r.Verbs, r.Resources) {
 			add("NODE_PROXY", scope)
 		}
 		if containsAny(r.Resources, "certificatesigningrequests", "certificatesigningrequests/approval") && (containsAny(r.Verbs, "update", "create", "approve") || hasWild) {
@@ -268,13 +270,13 @@ func AnalyzePod(ctx context.Context, db *gorm.DB, pod *models.Pod) (RBACAnalysis
 //
 // This is the canonical implementation extracted from graph/relational_path_builder.go.
 // Both PCE and the Attack Path Builder call this function to ensure consistent classification.
+//
+// Risk is rated from the rules. The only name-based verdict is the built-in
+// "cluster-admin" ClusterRole (whose rules are */*); other names such as
+// "configmap-admin" say nothing about what the role grants.
 func ClassifyRoleRisk(roleName, rulesJSON string) string {
-	lower := strings.ToLower(roleName)
-	if lower == "cluster-admin" || strings.Contains(lower, "cluster-admin") {
+	if strings.TrimSpace(roleName) == "cluster-admin" {
 		return string(RiskLevelCritical)
-	}
-	if strings.Contains(lower, "admin") {
-		return string(RiskLevelHigh)
 	}
 
 	if rulesJSON == "" || rulesJSON == "null" {
@@ -303,6 +305,17 @@ func ClassifyRoleRisk(roleName, rulesJSON string) string {
 		// Privilege escalation verbs
 		if containsAny(verbs, "escalate", "bind", "impersonate") {
 			return string(RiskLevelCritical)
+		}
+
+		// The kubelet API (nodes/proxy) runs commands in any pod on the node,
+		// whatever the verb: a GET upgrades to a websocket exec.
+		if grantsNodeProxy(verbs, resources) {
+			return string(RiskLevelCritical)
+		}
+		// pods/exec and pods/attach run commands in pods; clients use POST
+		// (create) or a websocket GET (get).
+		if grantsPodExec(verbs, resources) {
+			highest = maxRisk(highest, RiskLevelHigh)
 		}
 
 		// Read-only secret theft: get/list/watch on secrets is high risk
@@ -366,7 +379,62 @@ func HasSensitiveResources(resources []string) bool {
 	)
 }
 
+// RolePrivilegeLevel rates what a role's rules let a holder do, on the scale
+// the attack-path engine uses to order roles (higher = more privilege):
+//
+//	5  cluster-admin equivalent: */* or escalate/bind/impersonate
+//	4  takeover primitives: RBAC writes, workload creation, pods/exec|attach,
+//	   nodes/proxy, node writes, CSR issuance, SA token minting
+//	3  other writes on sensitive resources
+//	2  secret reads
+//	1  anything else
+//
+// It returns 0 when the rules are missing or unparseable, so callers can fall
+// back to other evidence.
+func RolePrivilegeLevel(rulesJSON string) int {
+	if rulesJSON == "" || rulesJSON == "null" {
+		return 0
+	}
+	var rules []policyRule
+	if err := json.Unmarshal([]byte(rulesJSON), &rules); err != nil {
+		return 0
+	}
+	level := 1
+	for _, r := range rules {
+		wildVerb := contains(r.Verbs, "*")
+		write := hasDangerousVerbs(r.Verbs, wildVerb)
+		switch {
+		case wildVerb && contains(r.Resources, "*"),
+			containsAny(r.Verbs, "escalate", "bind", "impersonate"):
+			return 5
+		case write && containsAny(r.Resources, "*", "roles", "clusterroles", "rolebindings", "clusterrolebindings", "nodes"),
+			(wildVerb || contains(r.Verbs, "create")) && containsAny(r.Resources,
+				"pods", "deployments", "daemonsets", "jobs", "cronjobs", "statefulsets", "replicasets",
+				"serviceaccounts/token", "certificatesigningrequests"),
+			(wildVerb || containsAny(r.Verbs, "update", "patch", "approve")) && contains(r.Resources, "certificatesigningrequests/approval"),
+			grantsPodExec(r.Verbs, r.Resources),
+			grantsNodeProxy(r.Verbs, r.Resources):
+			level = max(level, 4)
+		case write && HasSensitiveResources(r.Resources):
+			level = max(level, 3)
+		case (wildVerb || containsAny(r.Verbs, "get", "list", "watch")) && containsAny(r.Resources, "secrets", "*"):
+			level = max(level, 2)
+		}
+	}
+	return level
+}
+
 // --- helpers ---
+
+// grantsNodeProxy: any verb on nodes/proxy reaches the kubelet API.
+func grantsNodeProxy(verbs, resources []string) bool {
+	return len(verbs) > 0 && contains(resources, "nodes/proxy")
+}
+
+// grantsPodExec: pods/exec or pods/attach with create (POST) or get (websocket).
+func grantsPodExec(verbs, resources []string) bool {
+	return containsAny(resources, "pods/exec", "pods/attach") && containsAny(verbs, "create", "get", "*")
+}
 
 func hasDangerousVerbs(verbs []string, hasWildcard bool) bool {
 	return hasWildcard ||
