@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path"
 	"strings"
 	"time"
 
@@ -313,13 +314,13 @@ func EvaluatePod(ctx context.Context, db *gorm.DB, pod *models.Pod) ([]Capabilit
 		})
 	}
 
-	// ESC_HOSTPATH_NODE (standardized ID)
-	if hasHostPathMount(pod.Volumes, pod.VolumeMounts) {
+	// ESC_HOSTPATH_NODE (standardized ID): writable or sensitive hostPath only.
+	if escape, matches := hasEscapeHostPathMount(pod.Volumes, pod.VolumeMounts); escape {
 		caps = append(caps, Capability{
 			ID:       ESC_HOSTPATH_NODE,
 			Group:    "ESC",
 			Severity: "CRITICAL",
-			Evidence: map[string]interface{}{"hostPath": true},
+			Evidence: map[string]interface{}{"hostPath": true, "hostPathMatches": matches},
 			Mitre:    []string{"T1611"},
 		})
 	}
@@ -457,14 +458,92 @@ func hasPrivilegedContainer(containerSecurityContexts string) bool {
 	return false
 }
 
-func hasHostPathMount(volumesJSON, volumeMountsJSON string) bool {
+// sensitiveHostPaths are host directories whose exposure, even read-only,
+// leaks node or cluster credentials or kernel/runtime control (kubelet and
+// runtime state, host /etc, /proc, /sys, home directories). A mount of the
+// path itself or of anything below it matches.
+var sensitiveHostPaths = []string{
+	"/etc", "/root", "/home", "/proc", "/sys", "/dev", "/boot",
+	"/run", "/var/run", "/var/lib/kubelet", "/var/lib/docker", "/var/lib/containerd",
+	"/var/lib/crio", "/var/lib/etcd",
+}
+
+// harmlessReadOnlyHostPaths are well-known host files workloads mount
+// read-only for time zone or CA data; they grant nothing on the node.
+var harmlessReadOnlyHostPaths = []string{
+	"/etc/localtime", "/etc/timezone", "/usr/share/zoneinfo",
+	"/etc/ssl/certs", "/etc/pki/tls/certs", "/etc/ca-certificates",
+}
+
+// containerRuntimeSockets are runtime API sockets: whoever can connect to
+// one controls every container on the node. Read-only mounts do not stop a
+// socket connect.
+var containerRuntimeSockets = []string{
+	"docker.sock", "containerd.sock", "crio.sock", "cri-dockerd.sock", "dockershim.sock", "podman.sock",
+}
+
+func hostPathUnder(p, root string) bool {
+	return p == root || strings.HasPrefix(p, root+"/")
+}
+
+// isContainerRuntimeSocket reports whether a hostPath is (or is a directory
+// that exposes) a container runtime socket, e.g. /var/run/docker.sock or
+// /run/containerd/containerd.sock.
+func isContainerRuntimeSocket(hostPath string) bool {
+	base := path.Base(hostPath)
+	for _, sock := range containerRuntimeSockets {
+		if base == sock {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyHostPathMount says why a hostPath mount allows escaping to the node,
+// or "" when it does not: runtime sockets, the host root and sensitive host
+// directories always do; any other path does only when mounted writable.
+func classifyHostPathMount(hostPath string, readOnly bool) string {
+	p := path.Clean(hostPath)
+	if !path.IsAbs(p) {
+		return ""
+	}
+	if isContainerRuntimeSocket(p) {
+		return "container_runtime_socket"
+	}
+	if p == "/" {
+		return "host_root"
+	}
+	if readOnly {
+		for _, h := range harmlessReadOnlyHostPaths {
+			if hostPathUnder(p, h) {
+				return ""
+			}
+		}
+	}
+	for _, sp := range sensitiveHostPaths {
+		// A parent of a sensitive path (e.g. /var or /var/lib) exposes it too.
+		if hostPathUnder(p, sp) || hostPathUnder(sp, p) {
+			return "sensitive_host_path"
+		}
+	}
+	if !readOnly {
+		return "writable_host_path"
+	}
+	return ""
+}
+
+// hasEscapeHostPathMount reports hostPath mounts that let a container escape
+// to the node (see classifyHostPathMount), with per-mount evidence.
+// Read-only mounts of harmless paths such as /etc/localtime do not count.
+func hasEscapeHostPathMount(volumesJSON, volumeMountsJSON string) (bool, []map[string]interface{}) {
+	matches := []map[string]interface{}{}
 	var volumes []map[string]interface{}
 	if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {
-		return false
+		return false, matches
 	}
 	var mounts []map[string]interface{}
 	if err := json.Unmarshal([]byte(volumeMountsJSON), &mounts); err != nil {
-		return false
+		return false, matches
 	}
 
 	hostPathVolumes := map[string]string{}
@@ -474,25 +553,34 @@ func hasHostPathMount(volumesJSON, volumeMountsJSON string) bool {
 		if !ok || name == "" {
 			continue
 		}
-		path, _ := hostPath["path"].(string)
-		if path != "" {
-			hostPathVolumes[name] = path
+		p, _ := hostPath["path"].(string)
+		if p != "" {
+			hostPathVolumes[name] = p
 		}
 	}
 
 	for _, m := range mounts {
 		name, _ := m["name"].(string)
 		mountPath, _ := m["mountPath"].(string)
+		readOnly, _ := m["readOnly"].(bool)
 		if name == "" || mountPath == "" {
 			continue
 		}
-		if hostPath, ok := hostPathVolumes[name]; ok {
-			if mountPath == "/" || strings.HasPrefix(hostPath, "/") {
-				return true
-			}
+		hostPath, ok := hostPathVolumes[name]
+		if !ok {
+			continue
+		}
+		if reason := classifyHostPathMount(hostPath, readOnly); reason != "" {
+			matches = append(matches, map[string]interface{}{
+				"volume":    name,
+				"hostPath":  hostPath,
+				"mountPath": mountPath,
+				"readOnly":  readOnly,
+				"reason":    reason,
+			})
 		}
 	}
-	return false
+	return len(matches) > 0, matches
 }
 
 func hasSensitiveHostPathMount(volumesJSON, volumeMountsJSON string) (bool, map[string]interface{}) {

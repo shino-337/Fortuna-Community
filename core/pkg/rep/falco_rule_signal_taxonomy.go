@@ -56,16 +56,45 @@ var falcoRulePatternGroups = []falcoRulePatternGroup{
 		},
 	},
 	{
-		substrings: []string{
-			"/proc/", "proc files", "read sensitive file", "credential", "kubeconfig",
-			"service account token", "token", "privilege escalation",
-		},
+		substrings: []string{"/proc/", "proc files"},
 		out: FalcoRuleSignal{
 			SignalType: "PROC_ROOT_PIVOT",
 			Category:   "ESCAPE",
 			Confidence: 0.84,
-			Mitre:      "T1611.001",
+			Mitre:      "T1611",
 			BaseScore:  70,
+		},
+	},
+	// Credential access is not an escape: token and secret-file reads map to
+	// the CREDENTIALS signal, not PROC_ROOT_PIVOT.
+	{
+		substrings: []string{"service account token", "token"},
+		out: FalcoRuleSignal{
+			SignalType: "SERVICEACCOUNT_TOKEN_READ",
+			Category:   "CREDENTIALS",
+			Confidence: 0.8,
+			Mitre:      "T1528",
+			BaseScore:  60,
+		},
+	},
+	{
+		substrings: []string{"read sensitive file", "credential", "kubeconfig"},
+		out: FalcoRuleSignal{
+			SignalType: "SERVICEACCOUNT_TOKEN_READ",
+			Category:   "CREDENTIALS",
+			Confidence: 0.75,
+			Mitre:      "T1552",
+			BaseScore:  58,
+		},
+	},
+	{
+		substrings: []string{"privilege escalation"},
+		out: FalcoRuleSignal{
+			SignalType: "CAPABILITY_MISUSE",
+			Category:   "ESCAPE",
+			Confidence: 0.8,
+			Mitre:      "T1068",
+			BaseScore:  62,
 		},
 	},
 	{
@@ -77,7 +106,7 @@ var falcoRulePatternGroups = []falcoRulePatternGroup{
 			SignalType: "CAPABILITY_MISUSE",
 			Category:   "ESCAPE",
 			Confidence: 0.8,
-			Mitre:      "T1611.002",
+			Mitre:      "T1611",
 			BaseScore:  62,
 		},
 	},

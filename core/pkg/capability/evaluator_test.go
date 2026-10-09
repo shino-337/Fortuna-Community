@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/fortuna/core/pkg/models"
@@ -255,7 +256,70 @@ func TestHasWriteVerbs_NoWrite(t *testing.T) {
 func TestHasHostPathMount_NoHostPath(t *testing.T) {
 	volumesJSON := `[{"name":"config","configMap":{"name":"cfg"}}]`
 	mountsJSON := `[{"name":"config","mountPath":"/etc/config"}]`
-	if hasHostPathMount(volumesJSON, mountsJSON) {
-		t.Fatalf("expected hasHostPathMount to be false when no hostPath volume")
+	if escape, _ := hasEscapeHostPathMount(volumesJSON, mountsJSON); escape {
+		t.Fatalf("expected hasEscapeHostPathMount to be false when no hostPath volume")
+	}
+}
+
+func TestHasEscapeHostPathMount(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		hostPath string
+		readOnly bool
+		want     bool
+	}{
+		{"ro localtime", "/etc/localtime", true, false},
+		{"ro zoneinfo", "/usr/share/zoneinfo", true, false},
+		{"ro zoneinfo file", "/usr/share/zoneinfo/UTC", true, false},
+		{"ro ca certs", "/etc/ssl/certs", true, false},
+		{"ro var log", "/var/log", true, false},
+		{"rw localtime", "/etc/localtime", false, true},
+		{"rw arbitrary dir", "/data/cache", false, true},
+		{"ro host root", "/", true, true},
+		{"ro etc", "/etc", true, true},
+		{"ro kubernetes pki", "/etc/kubernetes/pki", true, true},
+		{"ro kubelet", "/var/lib/kubelet", true, true},
+		{"ro var (parent of kubelet)", "/var", true, true},
+		{"ro proc", "/proc", true, true},
+		{"ro sys", "/sys", true, true},
+		{"ro root home", "/root", true, true},
+		{"ro home", "/home", true, true},
+		{"ro run", "/run", true, true},
+		{"ro var run", "/var/run", true, true},
+		{"ro docker sock", "/var/run/docker.sock", true, true},
+		{"ro containerd sock", "/run/containerd/containerd.sock", true, true},
+		{"ro crio sock", "/var/run/crio/crio.sock", true, true},
+		{"ro runtime-ish name", "/runtime-data", true, false},
+		{"relative", "data", false, false},
+	} {
+		vols := `[{"name":"v","hostPath":{"path":"` + tc.hostPath + `"}}]`
+		mounts := fmt.Sprintf(`[{"name":"v","mountPath":"/mnt","readOnly":%v}]`, tc.readOnly)
+		got, matches := hasEscapeHostPathMount(vols, mounts)
+		if got != tc.want {
+			t.Errorf("%s: got %v want %v (matches=%v)", tc.name, got, tc.want, matches)
+		}
+	}
+	if !isContainerRuntimeSocket("/run/containerd/containerd.sock") || isContainerRuntimeSocket("/run/containerd") {
+		t.Fatal("isContainerRuntimeSocket mismatch")
+	}
+}
+
+func TestEvaluatePod_ReadOnlyLocaltimeIsNotHostPathEscape(t *testing.T) {
+	db := newTestDB(t)
+	pod := &models.Pod{
+		ClusterID:      "c1",
+		UID:            "pod-tz",
+		Name:           "tz",
+		Namespace:      "default",
+		ServiceAccount: "default",
+		Volumes:        `[{"name":"tz","hostPath":{"path":"/etc/localtime"}}]`,
+		VolumeMounts:   `[{"name":"tz","mountPath":"/etc/localtime","readOnly":true}]`,
+	}
+	caps, err := EvaluatePod(context.Background(), db, pod)
+	if err != nil {
+		t.Fatalf("EvaluatePod error: %v", err)
+	}
+	if _, ok := capabilityIDs(caps)[ESC_HOSTPATH_NODE]; ok {
+		t.Fatalf("read-only /etc/localtime must not be ESC_HOSTPATH_NODE: %v", capabilityIDs(caps))
 	}
 }

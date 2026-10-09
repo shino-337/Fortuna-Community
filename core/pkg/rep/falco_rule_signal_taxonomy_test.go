@@ -14,7 +14,10 @@ func TestClassifyFalcoRuleToSignal_RuleSubstrings(t *testing.T) {
 		{"Terminal shell in container", "falco.alert", "SUSPICIOUS_EXEC_FROM_SNAPSHOT", 0.8},
 		{"Launch Privileged Container", "falco.alert", "CAPABILITY_MISUSE", 0.75},
 		{"Unexpected outbound connection destination", "falco.alert", "NETWORK_QUEUE_ANOMALY", 0.7},
-		{"Read sensitive file untrusted", "falco.alert", "PROC_ROOT_PIVOT", 0.8},
+		{"Read sensitive file untrusted", "falco.alert", "SERVICEACCOUNT_TOKEN_READ", 0.7},
+		{"Read service account token", "falco.alert", "SERVICEACCOUNT_TOKEN_READ", 0.75},
+		{"Kubeconfig credential access", "falco.alert", "SERVICEACCOUNT_TOKEN_READ", 0.7},
+		{"Sudo Potential Privilege Escalation", "falco.alert", "CAPABILITY_MISUSE", 0.75},
 		{"Mount was executed inside a container", "falco.alert", "FS_ESCAPE_ATTEMPT", 0.85},
 		{"Change thread namespace", "falco.alert", "NAMESPACE_ESCAPE", 0.85},
 	}
