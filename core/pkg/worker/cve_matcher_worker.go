@@ -678,6 +678,16 @@ func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, sbomID uin
 	return nil
 }
 
+// vulnRecommendation tells the operator how to remediate a finding, without pointing at an
+// empty target when no fixed version has been published yet.
+func vulnRecommendation(pkg, fixedVersion, image string) string {
+	if fixedVersion == "" {
+		return fmt.Sprintf("No fixed version of package %s is available yet; track the advisory, mitigate exposure, and rebuild image %s once a fix is released.",
+			pkg, image)
+	}
+	return fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).", pkg, fixedVersion, image)
+}
+
 func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, component *models.SBOMComponent, match *models.CVEMatch) *models.Insight {
 	sevLower := strings.ToLower(strings.TrimSpace(match.Severity))
 	if sevLower == "" {
@@ -788,6 +798,11 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 	}
 	degraded := strings.ToLower(strings.TrimSpace(sbomStatus)) == "partial"
 
+	fixedVersion := strings.TrimSpace(match.FixedVersion)
+	fixedText := fixedVersion
+	if fixedText == "" {
+		fixedText = "no fixed version yet"
+	}
 	description := fmt.Sprintf(
 		"Vulnerability %s (%s) detected in package %s@%s for pod %s/%s (container=%s, image=%s). Fixed version: %s",
 		match.CVEID,
@@ -798,7 +813,7 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 		ev.PodName,
 		ev.ContainerName,
 		ev.ContainerImage,
-		match.FixedVersion,
+		fixedText,
 	)
 
 	title := fmt.Sprintf("%s in %s", match.CVEID, component.ComponentName)
@@ -817,8 +832,7 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 		Title:             title,
 		Description:       description,
 		Status:            "active",
-		Recommendation: fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).",
-			component.ComponentName, match.FixedVersion, ev.ContainerImage),
+		Recommendation:    vulnRecommendation(component.ComponentName, fixedVersion, ev.ContainerImage),
 
 		MatchConfidence:     matchConf,
 		ComponentConfidence: componentConf,
