@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -92,16 +93,16 @@ func classifySignal(syscall, target, capabilityName, runtimeSource, sourceRule s
 	runtimeSource = strings.ToLower(strings.TrimSpace(runtimeSource))
 
 	if isProcRootPivot(syscall, target) {
-		return "PROC_ROOT_PIVOT", "T1611.001", 90
+		return "PROC_ROOT_PIVOT", "T1611", 90
 	}
 	if isFSEscapeAttempt(syscall, target) {
-		return "FS_ESCAPE_ATTEMPT", "T1610", 95
+		return "FS_ESCAPE_ATTEMPT", "T1611", 95
 	}
 	if isNamespaceEscape(syscall, target) {
 		return "NAMESPACE_ESCAPE", "T1055", 85
 	}
 	if isCapabilityMisuse(syscall, capabilityName, db, ctx, podUID) {
-		return "CAPABILITY_MISUSE", "T1611.002", 60
+		return "CAPABILITY_MISUSE", "T1611", 60
 	}
 
 	// Falco: capability fields may not exist, so map exec/connect into Fortuna runtime-signals
@@ -150,15 +151,55 @@ func classifySignal(syscall, target, capabilityName, runtimeSource, sourceRule s
 	return "", "", 0
 }
 
+// isProcRootPivot matches accesses that indicate a container escape through
+// procfs or kernel usermode-helper hooks:
+//   - /proc/<pid>/root (or below) of another process, e.g. /proc/1/root: with
+//     hostPID this is the host root filesystem;
+//   - opening or writing /proc/sys/kernel/core_pattern, /proc/sys/kernel/modprobe,
+//     a cgroup release_agent or /sys/kernel/uevent_helper, which make the
+//     kernel run a chosen binary on the host.
+//
+// /proc/self/exe, /proc/<pid>/exe and /proc/self/root are routine (runtimes,
+// language launchers, shells) and are not pivots.
 func isProcRootPivot(syscall, target string) bool {
-	if syscall != "open" && syscall != "openat" && syscall != "stat" && syscall != "readlink" {
+	t := path.Clean(strings.TrimSpace(target))
+	switch syscall {
+	case "open", "openat", "openat2", "write", "pwrite64":
+		if isKernelHelperHook(t) {
+			return true
+		}
+	}
+	switch syscall {
+	case "open", "openat", "openat2", "stat", "lstat", "newfstatat", "readlink", "readlinkat", "chdir", "chroot":
+		return isOtherProcessRoot(t)
+	}
+	return false
+}
+
+func isKernelHelperHook(p string) bool {
+	switch {
+	case p == "/proc/sys/kernel/core_pattern", p == "/proc/sys/kernel/modprobe",
+		p == "/sys/kernel/uevent_helper", path.Base(p) == "release_agent":
+		return true
+	}
+	return false
+}
+
+// isOtherProcessRoot matches /proc/<numeric pid>/root[/...].
+func isOtherProcessRoot(p string) bool {
+	if !strings.HasPrefix(p, "/proc/") {
 		return false
 	}
-	return strings.Contains(target, "/proc/1/root") ||
-		strings.Contains(target, "/proc/self/exe") ||
-		strings.Contains(target, "/proc/1/exe") ||
-		strings.Contains(target, "/proc/") && strings.Contains(target, "/root") ||
-		strings.Contains(target, "/proc/") && strings.Contains(target, "/exe")
+	parts := strings.SplitN(strings.TrimPrefix(p, "/proc/"), "/", 3)
+	if len(parts) < 2 || parts[1] != "root" || parts[0] == "" {
+		return false
+	}
+	for _, r := range parts[0] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func isFSEscapeAttempt(syscall, target string) bool {
@@ -203,22 +244,38 @@ func isSuspiciousProcessSnapshotExec(syscall, capName, target string) bool {
 	return falcoSuspiciousExecTarget(target)
 }
 
-// falcoSuspiciousExecTarget mirrors SignalAdapter execve heuristics for Falco proc.cmdline targets.
+// suspiciousExecBinaries are shells, network relays, downloaders and script
+// interpreters, matched on the executable's basename.
+var suspiciousExecBinaries = map[string]bool{
+	"sh": true, "bash": true, "dash": true, "zsh": true, "ash": true, "ksh": true, "mksh": true,
+	"csh": true, "tcsh": true, "fish": true,
+	"nc": true, "ncat": true, "netcat": true, "socat": true,
+	"curl": true, "wget": true,
+	"perl": true, "ruby": true,
+}
+
+// falcoSuspiciousExecTarget classifies an execve target (an executable path
+// or a proc.cmdline) by the basename of its executable, so that ssh, flush,
+// sync or launch no longer match "sh"/"nc". Binaries run from /tmp or
+// /dev/shm are suspicious too.
 func falcoSuspiciousExecTarget(target string) bool {
-	t := strings.ToLower(strings.TrimSpace(target))
-	if t == "" {
+	fields := strings.Fields(strings.ToLower(target))
+	if len(fields) == 0 {
 		return false
 	}
-	keywords := []string{
-		"bash", "sh", "nc", "netcat", "ncat", "socat",
-		"curl", "wget", "python", "perl", "ruby",
+	exe := fields[0]
+	if strings.HasPrefix(exe, "/tmp/") || strings.HasPrefix(exe, "/dev/shm/") {
+		return true
 	}
-	for _, k := range keywords {
-		if strings.Contains(t, k) {
-			return true
-		}
+	base := path.Base(exe)
+	if base == "busybox" && len(fields) > 1 {
+		base = path.Base(fields[1])
 	}
-	return strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/")
+	if suspiciousExecBinaries[base] {
+		return true
+	}
+	// python, python3, python3.12, ...
+	return strings.HasPrefix(base, "python") && strings.Trim(strings.TrimPrefix(base, "python"), "0123456789.") == ""
 }
 
 func isNetworkQueueSpike(syscall, capabilityName string) bool {

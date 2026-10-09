@@ -24,6 +24,9 @@ type GraphNode struct {
 	// provides for role nodes without relying on role name string matching.
 	// Intentionally excluded from JSON (engine-internal only).
 	SemanticCaps []string
+	// PrivilegeLevel is rbac.RolePrivilegeLevel of a role node's rules
+	// (0 = unknown; consumers then fall back to the role name).
+	PrivilegeLevel int
 }
 
 // GraphEdge is a typed directed edge with feasibility semantics.
@@ -164,7 +167,7 @@ func (g *AttackGraph) BuildTopPathsAdaptive(
 					NodeIDs:   append([]string(nil), cur.nodeIDs...),
 					EdgeTypes: append([]string(nil), cur.edgeTypes...),
 					Strength:  math.Round(penalizedStrength*1000) / 1000,
-					Class:     classifyPath(cur.edgeTypes, lastNode.Type, lastNode.ID),
+					Class:     classifyPath(cur.edgeTypes, lastNode),
 				})
 				// Early-stop at crown assets.
 				if lastNode.Type == NodeTypeNode || lastNode.Namespace == "kube-system" {
@@ -231,7 +234,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func classifyPath(edgeTypes []string, endType string, endID string) string {
+func classifyPath(edgeTypes []string, end GraphNode) string {
 	for _, e := range edgeTypes {
 		if e == EdgeTypeHostAccess || e == EdgeTypeContainerEscape {
 			return PathClassEscape
@@ -242,8 +245,8 @@ func classifyPath(edgeTypes []string, endType string, endID string) string {
 			return PathClassLateral
 		}
 	}
-	if endType == NodeTypeClusterRole || endType == NodeTypeRole {
-		if privilegeLevelFromID(endID) >= 3 {
+	if end.Type == NodeTypeClusterRole || end.Type == NodeTypeRole {
+		if rolePrivilegeLevel(end.PrivilegeLevel, end.ID) >= 3 {
 			return PathClassPrivEsc
 		}
 		return PathClassDataExfil

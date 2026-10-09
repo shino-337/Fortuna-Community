@@ -27,7 +27,10 @@ type pathNormalized struct {
 	Strength     float64
 	Confidence   string
 	SemanticCaps []string // derived from RBAC rules via DeriveCapabilities (FIX E)
-	Raw          AttackPath
+	// TargetPrivilege is the rule-derived privilege level of a role target
+	// (rbac.RolePrivilegeLevel); 0 when unknown.
+	TargetPrivilege int
+	Raw             AttackPath
 }
 
 // DetectChains runs full chain-detection rules with confidence, dedup, and anti-explosion limits.
@@ -182,9 +185,16 @@ func normalizePaths(paths []AttackPath) []pathNormalized {
 		// FIX E: read SemanticCaps from target node properties
 		// (written by semanticCapsFromRules via convertGraphPathsToAttackPaths).
 		var semanticCaps []string
+		targetPrivilege := 0
 		if lastNode := p.Nodes[len(p.Nodes)-1]; lastNode.Properties != nil {
 			if sc, ok := lastNode.Properties["semantic_caps"].([]string); ok {
 				semanticCaps = sc
+			}
+			switch v := lastNode.Properties["privilege_level"].(type) {
+			case int:
+				targetPrivilege = v
+			case float64: // after a JSON round trip
+				targetPrivilege = int(v)
 			}
 		}
 		provides := deriveProvides(p, source, target, cls)
@@ -198,16 +208,17 @@ func normalizePaths(paths []AttackPath) []pathNormalized {
 			pathID = fmt.Sprintf("p%d", idx)
 		}
 		out = append(out, pathNormalized{
-			PathID:       pathID,
-			Source:       source,
-			Target:       target,
-			Class:        cls,
-			Provides:     provides,
-			Requires:     requires,
-			Strength:     strength,
-			Confidence:   conf,
-			SemanticCaps: semanticCaps,
-			Raw:          p,
+			PathID:          pathID,
+			Source:          source,
+			Target:          target,
+			Class:           cls,
+			Provides:        provides,
+			Requires:        requires,
+			Strength:        strength,
+			Confidence:      conf,
+			SemanticCaps:    semanticCaps,
+			TargetPrivilege: targetPrivilege,
+			Raw:             p,
 		})
 	}
 	return out
@@ -354,19 +365,19 @@ func objectiveFromChainContext(b pathNormalized) string {
 	case strings.ToUpper(NodeTypeNode):
 		return "NODE_COMPROMISE"
 	case strings.ToUpper(NodeTypeClusterRole):
-		if privilegeLevelFromID(b.Target.ID) >= 4 {
+		if privilegeLevelFromPath(b) >= 4 {
 			return "CLUSTER_TAKEOVER"
 		}
 		// FIX E: prefer SemanticCaps-derived objective over name-based fallback.
 		if obj := objectiveFromSemanticCaps(b.SemanticCaps); obj != "" {
 			return obj
 		}
-		return classifyObjectiveByRole(b.Target.ID)
+		return classifyObjectiveByRoleTarget(b)
 	case strings.ToUpper(NodeTypeRole):
 		if obj := objectiveFromSemanticCaps(b.SemanticCaps); obj != "" {
 			return obj
 		}
-		return classifyObjectiveByRole(b.Target.ID)
+		return classifyObjectiveByRoleTarget(b)
 	default:
 		return "DATA_EXFILTRATION"
 	}
@@ -410,11 +421,29 @@ func objectiveFromSemanticCaps(caps []string) string {
 	return ""
 }
 
+// classifyObjectiveByRoleTarget classifies a role target without semantic
+// capabilities: by its rule-derived privilege level when known, else by name.
+func classifyObjectiveByRoleTarget(b pathNormalized) string {
+	switch {
+	case b.TargetPrivilege <= 0:
+		return classifyObjectiveByRole(b.Target.ID)
+	case b.TargetPrivilege >= 5:
+		return "CLUSTER_PRIVILEGE_ESCALATION"
+	case b.TargetPrivilege >= 3:
+		return "WORKLOAD_CONTROL"
+	case b.TargetPrivilege == 2:
+		return "SECRET_EXFIL"
+	default:
+		return "LIMITED_RBAC_IMPACT"
+	}
+}
+
 // classifyObjectiveByRole maps a role ID to a semantic attack objective.
+// Name-based fallback for paths that carry no rule-derived privilege level.
 // Cases are ordered by severity (highest first) to handle compound role names
 // correctly (e.g. "secret-storage-admin" → CLUSTER_PRIVILEGE_ESCALATION, not SECRET_EXFIL).
 func classifyObjectiveByRole(roleID string) string {
-	lower := strings.ToLower(strings.TrimPrefix(roleID, "role:"))
+	lower := strings.ToLower(roleNameFromNodeID(roleID))
 	switch {
 	case strings.Contains(lower, "admin"):
 		return "CLUSTER_PRIVILEGE_ESCALATION"
@@ -536,8 +565,18 @@ func hasAnyPrefix(values []string, prefixes ...string) bool {
 	return false
 }
 
+// rolePrivilegeLevel prefers the rule-derived level and falls back to the
+// role name only when the rules were unavailable.
+func rolePrivilegeLevel(ruleLevel int, id string) int {
+	if ruleLevel > 0 {
+		return ruleLevel
+	}
+	return privilegeLevelFromID(id)
+}
+
+// privilegeLevelFromID is the name-based fallback of rolePrivilegeLevel.
 func privilegeLevelFromID(id string) int {
-	role := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "role:"))
+	role := strings.ToLower(roleNameFromNodeID(id))
 	switch {
 	case strings.Contains(role, "cluster-admin"):
 		return 5
@@ -553,7 +592,7 @@ func privilegeLevelFromID(id string) int {
 }
 
 func privilegeLevelFromPath(p pathNormalized) int {
-	return privilegeLevelFromID(p.Target.ID)
+	return rolePrivilegeLevel(p.TargetPrivilege, p.Target.ID)
 }
 
 // validateChainCompleteness downgrades confidence when a chain skips

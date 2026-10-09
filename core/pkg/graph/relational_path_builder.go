@@ -15,7 +15,9 @@ import (
 
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbac"
+	"github.com/fortuna/core/pkg/rbacinventory"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	rbacv1 "k8s.io/api/rbac/v1"
 )
 
 // RelationalPathBuilder computes attack paths using relational (SQL) queries
@@ -38,13 +40,6 @@ func NewRelationalPathBuilder(db *gorm.DB) *RelationalPathBuilder {
 type roleRef struct {
 	Kind string `json:"kind"` // "Role" or "ClusterRole"
 	Name string `json:"name"`
-}
-
-// subject is one entry in the "subjects" JSONB array of a binding.
-type subject struct {
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
 }
 
 // AttackPathSummary provides aggregate statistics across all computed paths.
@@ -371,7 +366,7 @@ func buildDeterministicPaths(
 
 	nodeID := ""
 	if pod.NodeName != "" {
-		nodeID = "node:" + pod.NodeName
+		nodeID = clusterNodeID(pod.NodeName)
 	}
 	stateAmp := capabilityStateAmplifier(pod, podCaps, len(reachCtx.ObservedEgressIPs) > 0)
 	for _, c := range podCaps {
@@ -391,9 +386,9 @@ func buildDeterministicPaths(
 		}
 		exploit += stateAmp
 		g.AddEdge(GraphEdge{From: pod.UID, To: capNodeID, Type: edgeType, Exploitability: exploit})
-		if nodeID != "" && (c.CapabilityID == "ESC_HOSTPATH_NODE" || c.CapabilityID == "ESC_RUNTIME_ACTIVE") {
-			g.AddNode(GraphNode{ID: nodeID, Type: NodeTypeNode, Namespace: "kube-system", Label: pod.NodeName})
-			g.AddEdge(GraphEdge{From: capNodeID, To: nodeID, Type: EdgeTypeLateralMove, Exploitability: clampFloat(0.8+stateAmp, 0.1, 0.99)})
+		if base, ok := nodeEscapeExploitability(c.CapabilityID); ok && nodeID != "" {
+			g.AddNode(clusterNodeGraphNode(pod.NodeName))
+			g.AddEdge(GraphEdge{From: capNodeID, To: nodeID, Type: EdgeTypeLateralMove, Exploitability: clampFloat(base+stateAmp, 0.1, 0.99)})
 		}
 	}
 
@@ -404,7 +399,14 @@ func buildDeterministicPaths(
 		if step.StepID == "NODE_CRED_DUMP" {
 			edgeType = EdgeTypeCanStealCredential
 		}
-		g.AddEdge(GraphEdge{From: pod.UID, To: stepID, Type: edgeType, Exploitability: clampFloat(step.Confidence, 0.2, 0.95)})
+		stepExploit := clampFloat(step.Confidence, 0.2, 0.95)
+		g.AddEdge(GraphEdge{From: pod.UID, To: stepID, Type: edgeType, Exploitability: stepExploit})
+		// Node-level attack steps are only inferred from confirmed/exploited
+		// escape capabilities, so they lead to the node they act on.
+		if nodeID != "" && isNodeLevelAttackStep(step.StepID) {
+			g.AddNode(clusterNodeGraphNode(pod.NodeName))
+			g.AddEdge(GraphEdge{From: stepID, To: nodeID, Type: EdgeTypeContainerEscape, Exploitability: stepExploit})
+		}
 	}
 
 	targetTypes := map[string]bool{
@@ -417,15 +419,87 @@ func buildDeterministicPaths(
 		targetTypes,
 		highRiskSource,
 		PathBuildOptions{},
-		func(edge GraphEdge, from, to GraphNode) bool {
-			if from.Namespace != "" && to.Namespace != "" && from.Namespace != to.Namespace &&
-				edge.Type != EdgeTypeRbacBinding && edge.Type != EdgeTypeGrantsRole {
-				return false
-			}
-			return true
-		},
+		relationalEdgeFeasible,
 	)
 	return convertGraphPathsToAttackPaths(paths, g)
+}
+
+// relationalEdgeFeasible rejects edges that cross namespaces, except RBAC
+// edges (a binding may grant a role elsewhere). Cluster-scoped nodes (Kubernetes
+// nodes, ClusterRoleBindings, cluster-wide ClusterRoles) have no namespace and
+// are therefore reachable from any namespace.
+func relationalEdgeFeasible(edge GraphEdge, from, to GraphNode) bool {
+	if from.Namespace != "" && to.Namespace != "" && from.Namespace != to.Namespace &&
+		edge.Type != EdgeTypeRbacBinding && edge.Type != EdgeTypeGrantsRole {
+		return false
+	}
+	return true
+}
+
+// clusterNodeID is the graph ID of a Kubernetes node.
+func clusterNodeID(nodeName string) string {
+	return "node:" + nodeName
+}
+
+// clusterNodeGraphNode builds the graph node for a Kubernetes node. Nodes are
+// cluster-scoped, so they carry no namespace.
+func clusterNodeGraphNode(nodeName string) GraphNode {
+	return GraphNode{ID: clusterNodeID(nodeName), Type: NodeTypeNode, Label: nodeName}
+}
+
+// nodeEscapeExploitability returns the base exploitability of the
+// capability→node edge for capabilities that genuinely give access to the
+// node. hostIPC and the static runtime probe are not escapes by themselves.
+func nodeEscapeExploitability(capabilityID string) (float64, bool) {
+	switch strings.ToUpper(strings.TrimSpace(capabilityID)) {
+	case "ESC_PRIV_POD": // privileged: host devices, host fs mount, nsenter
+		return 0.85, true
+	case "ESC_HOSTPATH_NODE", "ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROC_ROOT":
+		return 0.8, true
+	case "ESC_HOSTPID_POD": // host processes visible; escape needs extra privilege
+		return 0.5, true
+	default:
+		return 0, false
+	}
+}
+
+// isNodeLevelAttackStep reports whether an inferred attack step acts on the
+// pod's node (see capability.getStepCategory).
+func isNodeLevelAttackStep(stepID string) bool {
+	switch strings.ToUpper(strings.TrimSpace(stepID)) {
+	case "NODE_FS_WRITE", "NODE_KERNEL_ACCESS", "NODE_CRED_DUMP", "NODE_PERSISTENCE",
+		"KUBELET_CRED_ACCESS", "PROC_ROOT_PIVOT":
+		return true
+	default:
+		return false
+	}
+}
+
+// rbacRoleNodeID identifies a granted role. Role names are only unique per
+// kind and namespace: Role ns-a/foo, Role ns-b/foo and ClusterRole foo are
+// distinct. namespace is the Role's namespace, the RoleBinding namespace for a
+// ClusterRole granted by a RoleBinding, or "" for a ClusterRoleBinding grant.
+func rbacRoleNodeID(kind, namespace, name string) string {
+	if namespace == "" {
+		return "role:" + kind + ":" + name
+	}
+	return "role:" + kind + ":" + namespace + "/" + name
+}
+
+// roleNameFromNodeID returns the role name of a role node ID. It accepts the
+// current "role:<Kind>:[<ns>/]<name>" form and the legacy "role:<name>" form.
+func roleNameFromNodeID(id string) string {
+	rest := strings.TrimPrefix(strings.TrimSpace(id), "role:")
+	for _, kind := range []string{"Role:", "ClusterRole:"} {
+		if strings.HasPrefix(rest, kind) {
+			rest = strings.TrimPrefix(rest, kind)
+			if i := strings.LastIndex(rest, "/"); i >= 0 {
+				rest = rest[i+1:]
+			}
+			break
+		}
+	}
+	return rest
 }
 
 func addRBACChainForSA(
@@ -437,7 +511,7 @@ func addRBACChainForSA(
 	crMap map[string]models.ClusterRole,
 ) {
 	for _, rb := range roleBindings {
-		if !bindingRefersToSA(rb.Subjects, sa.Name, sa.Namespace) {
+		if !bindingRefersToSA(rb.Subjects, rb.Namespace, sa) {
 			continue
 		}
 		var ref roleRef
@@ -448,11 +522,11 @@ func addRBACChainForSA(
 		switch ref.Kind {
 		case "Role":
 			if r, ok := roleMap[rb.Namespace+"/"+ref.Name]; ok {
-				targetID, targetType, targetName, targetRules = "role:"+r.Name, NodeTypeRole, r.Name, r.Rules
+				targetID, targetType, targetName, targetRules = rbacRoleNodeID("Role", rb.Namespace, r.Name), NodeTypeRole, r.Name, r.Rules
 			}
 		case "ClusterRole":
 			if cr, ok := crMap[ref.Name]; ok {
-				targetID, targetType, targetName, targetRules = "role:"+cr.Name, NodeTypeClusterRole, cr.Name, cr.Rules
+				targetID, targetType, targetName, targetRules = rbacRoleNodeID("ClusterRole", rb.Namespace, cr.Name), NodeTypeClusterRole, cr.Name, cr.Rules
 			}
 		}
 		if targetID == "" {
@@ -466,13 +540,14 @@ func addRBACChainForSA(
 		semanticCaps := semanticCapsFromRules(targetRules)
 		bindingID := fmt.Sprintf("binding:%s/%s", rb.Namespace, rb.Name)
 		g.AddNode(GraphNode{ID: bindingID, Type: NodeTypeRoleBinding, Namespace: rb.Namespace, Label: rb.Name})
-		g.AddNode(GraphNode{ID: targetID, Type: targetType, Namespace: rb.Namespace, Label: targetName, SemanticCaps: semanticCaps})
+		g.AddNode(GraphNode{ID: targetID, Type: targetType, Namespace: rb.Namespace, Label: targetName, SemanticCaps: semanticCaps,
+			PrivilegeLevel: rbac.RolePrivilegeLevel(targetRules)})
 		g.AddEdge(GraphEdge{From: sa.UID, To: bindingID, Type: EdgeTypeRbacBinding, Exploitability: 0.85})
 		g.AddEdge(GraphEdge{From: bindingID, To: targetID, Type: EdgeTypeGrantsRole, Exploitability: exploitabilityByRisk(riskLevel)})
 	}
 
 	for _, crb := range clusterRoleBindings {
-		if !bindingRefersToSA(crb.Subjects, sa.Name, sa.Namespace) {
+		if !bindingRefersToSA(crb.Subjects, "", sa) {
 			continue
 		}
 		var ref roleRef
@@ -490,9 +565,10 @@ func addRBACChainForSA(
 		// FIX E: derive semantic capabilities from actual RBAC rules.
 		semanticCaps := semanticCapsFromRules(cr.Rules)
 		bindingID := fmt.Sprintf("binding:/%s", crb.Name)
-		targetID := "role:" + cr.Name
+		targetID := rbacRoleNodeID("ClusterRole", "", cr.Name)
 		g.AddNode(GraphNode{ID: bindingID, Type: NodeTypeClusterBinding, Namespace: "", Label: crb.Name})
-		g.AddNode(GraphNode{ID: targetID, Type: NodeTypeClusterRole, Namespace: "", Label: cr.Name, SemanticCaps: semanticCaps})
+		g.AddNode(GraphNode{ID: targetID, Type: NodeTypeClusterRole, Namespace: "", Label: cr.Name, SemanticCaps: semanticCaps,
+			PrivilegeLevel: rbac.RolePrivilegeLevel(cr.Rules)})
 		g.AddEdge(GraphEdge{From: sa.UID, To: bindingID, Type: EdgeTypeRbacBinding, Exploitability: 0.9})
 		g.AddEdge(GraphEdge{From: bindingID, To: targetID, Type: EdgeTypeGrantsRole, Exploitability: exploitabilityByRisk(riskLevel)})
 	}
@@ -697,6 +773,9 @@ func convertGraphPathsToAttackPaths(gps []GraphPath, g *AttackGraph) []AttackPat
 			// so chain_detection.go can use rule-derived objectives/provides.
 			if len(n.SemanticCaps) > 0 {
 				props["semantic_caps"] = n.SemanticCaps
+			}
+			if n.PrivilegeLevel > 0 {
+				props["privilege_level"] = n.PrivilegeLevel
 			}
 			nodes = append(nodes, PathNode{
 				ID:         n.ID,
@@ -1202,19 +1281,23 @@ func (b *RelationalPathBuilder) BuildAttackPathsViewBundle(ctx context.Context, 
 
 // ──────────────────── helpers ────────────────────
 
-func bindingRefersToSA(subjectsJSON, saName, saNamespace string) bool {
+// bindingRefersToSA reports whether a binding's subjects include the SA, with
+// the same Kubernetes subject semantics as the RBAC inventory resolver: a
+// ServiceAccount subject without namespace defaults to the RoleBinding's
+// namespace (bindingNamespace; "" for a ClusterRoleBinding, which then never
+// matches), and the SA's user name and the system:serviceaccounts,
+// system:serviceaccounts:<ns> and system:authenticated groups also match.
+func bindingRefersToSA(subjectsJSON, bindingNamespace string, sa models.ServiceAccount) bool {
 	if subjectsJSON == "" || subjectsJSON == "null" {
 		return false
 	}
-	var subjects []subject
+	var subjects []rbacv1.Subject
 	if err := json.Unmarshal([]byte(subjectsJSON), &subjects); err != nil {
 		return false
 	}
 	for _, s := range subjects {
-		if s.Kind == "ServiceAccount" && s.Name == saName {
-			if s.Namespace == "" || s.Namespace == saNamespace {
-				return true
-			}
+		if rbacinventory.SubjectMatches(s, bindingNamespace, &sa) {
+			return true
 		}
 	}
 	return false

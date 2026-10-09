@@ -97,12 +97,8 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 	target := event.TargetPath
 	runtimeSource := strings.ToLower(strings.TrimSpace(event.Runtime))
 
-	// PROC_ROOT_PIVOT detection
-	if (syscall == "openat" || syscall == "open" || syscall == "stat" || syscall == "readlink") &&
-		(target == "/proc/1/root" ||
-			target == "/proc/self/exe" ||
-			target == "/proc/1/exe" ||
-			(len(target) > 6 && target[:6] == "/proc/" && (target[6:] == "1/root" || target[6:] == "self/exe"))) {
+	// PROC_ROOT_PIVOT detection (shared with the REP classifier)
+	if isProcRootPivot(strings.ToLower(strings.TrimSpace(syscall)), target) {
 		return "PROC_ROOT_PIVOT", "ESCAPE", 0.9
 	}
 
@@ -132,22 +128,8 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 		// "bash/sh/nc/curl/wget/..." or comes from writable locations (/tmp,/dev/shm).
 		allowFalco := runtimeSource == "falco"
 		allowSnapshot := strings.EqualFold(event.Capability, "PROCESS_SNAPSHOT_DIFF")
-		if allowFalco || allowSnapshot {
-			t := strings.ToLower(strings.TrimSpace(target))
-			if t != "" {
-				keywords := []string{
-					"bash", "sh", "nc", "netcat", "ncat", "socat",
-					"curl", "wget", "python", "perl", "ruby",
-				}
-				for _, k := range keywords {
-					if strings.Contains(t, k) {
-						return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
-					}
-				}
-				if strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/") {
-					return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
-				}
-			}
+		if (allowFalco || allowSnapshot) && falcoSuspiciousExecTarget(target) {
+			return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
 		}
 	}
 	// NETWORK_QUEUE_ANOMALY (R5 phase-2)
