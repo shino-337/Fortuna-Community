@@ -4,7 +4,7 @@ import { Box, User, ExternalLink, Loader2, X } from 'lucide-react';
 import { Button } from './ui/Button';
 import { api } from '../lib/api';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
-import { deriveUnifiedRiskLevelFromScore, getSeverityBadgeClass, getSeverityIcon } from '../lib/severity';
+import { deriveUnifiedRiskLevelFromScore, formatCvss, getSeverityBadgeClass, getSeverityIcon } from '../lib/severity';
 import type { AuditLog, Insight, PodCapabilityDetail, RuntimeSignal } from '../types';
 import {
   UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT,
@@ -211,6 +211,12 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
               <span title="Factor band based on impacted resource context.">Business impact: <span className="text-text">{formatRiskFactor(insight.businessImpactScore)}</span></span>
               <span title="Recency/age adjustment factor, not a confidence score.">Time decay: <span className="text-text">{insight.timeDecay != null ? insight.timeDecay.toFixed(2) : '—'}</span></span>
               <span>Source: {insight.insightType === 'vulnerability' || insight.insightType === 'supply_chain_malware' ? 'Static scan' : 'Runtime behavior'}</span>
+              {insight.insightType === 'vulnerability' ? (
+                <>
+                  <span title="CVSS base score of the vulnerability">CVSS: <span className="text-text tabular-nums">{formatCvss(insight.cvss)}</span></span>
+                  <span title="First package version that fixes the vulnerability">Fixed in: <span className="text-text font-mono">{insight.fixedVersion || 'no fixed version yet'}</span></span>
+                </>
+              ) : null}
               <span>Evidence: <span className="text-text">{scoreEvidenceLabel}</span></span>
               <span>Workflow: <span className="uppercase">{statusLabelMap[insight.status || ''] ?? insight.status}</span></span>
             </div>

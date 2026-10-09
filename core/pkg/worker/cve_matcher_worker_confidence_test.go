@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -176,4 +177,20 @@ func TestBuildVulnInsightFromEvent_MatchConstraintSatisfiedRaisesConfidence(t *t
 	require.Equal(t, "HIGH", insight.ComponentConfidence)
 	require.Equal(t, "HIGH", insight.SBOMConfidence)
 	require.Equal(t, "HIGH", insight.FinalRiskConfidence)
+}
+
+func TestBuildVulnInsightFromEvent_FixedVersionText(t *testing.T) {
+	ev := sbom.SBOMCreatedEvent{PodUID: "pod-uid-1", PodName: "pod-1", PodNamespace: "ns", ContainerName: "c1", ContainerImage: "img:tag"}
+	component := &models.SBOMComponent{ComponentName: "openssl", ComponentVersion: "1.0", TrustLevel: "high", PURLValidated: true}
+
+	noFix := &models.CVEMatch{CVEID: "CVE-TEST", Severity: "HIGH", PackageName: "openssl", PackageVersion: "1.0"}
+	insight := buildVulnInsightFromEvent(ev, "complete", component, noFix)
+	require.True(t, strings.HasSuffix(insight.Description, "Fixed version: no fixed version yet"), insight.Description)
+	require.NotContains(t, insight.Recommendation, "->")
+	require.Contains(t, insight.Recommendation, "No fixed version of package openssl is available yet")
+
+	fixed := &models.CVEMatch{CVEID: "CVE-TEST", Severity: "HIGH", FixedVersion: "2.0", PackageName: "openssl", PackageVersion: "1.0"}
+	insight = buildVulnInsightFromEvent(ev, "complete", component, fixed)
+	require.True(t, strings.HasSuffix(insight.Description, "Fixed version: 2.0"), insight.Description)
+	require.Contains(t, insight.Recommendation, "package openssl -> 2.0")
 }

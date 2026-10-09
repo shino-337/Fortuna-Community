@@ -17,11 +17,18 @@ export interface PlatformAccess {
   clusterScoped: boolean;
 }
 
+/** Cross-cluster integrity check: catalog and runtime ingest health, and the alerts Core derived from them. */
+export interface PlatformIntegrity {
+  catalog: CatalogHealth;
+  runtime: RuntimeHealth | null;
+  alerts: string[];
+}
+
 export interface PlatformData {
   agents: PlatformSection<Agent[]>;
   pipeline: PlatformSection<PipelineHealth>;
   sync: PlatformSection<SyncStatus>;
-  integrity: PlatformSection<{ catalog: CatalogHealth; runtime: RuntimeHealth | null }>;
+  integrity: PlatformSection<PlatformIntegrity>;
   certificates: PlatformSection<Certificate[]>;
   recentErrors: PlatformSection<ErrorLog[]>;
   loadedAt: Date | null;
@@ -43,7 +50,7 @@ export function usePlatformData(access: PlatformAccess): PlatformData {
   const [agents, setAgents] = useState(empty<Agent[]>);
   const [pipeline, setPipeline] = useState(empty<PipelineHealth>);
   const [sync, setSync] = useState(empty<SyncStatus>);
-  const [integrity, setIntegrity] = useState(empty<{ catalog: CatalogHealth; runtime: RuntimeHealth | null }>);
+  const [integrity, setIntegrity] = useState(empty<PlatformIntegrity>);
   const [certificates, setCertificates] = useState(empty<Certificate[]>);
   const [recentErrors, setRecentErrors] = useState(empty<ErrorLog[]>);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
@@ -58,7 +65,7 @@ export function usePlatformData(access: PlatformAccess): PlatformData {
       maybe(canAgents, () => api.getAgents()),
       maybe(metrics, () => api.getPipelineHealth()),
       maybe(metrics, () => api.getSyncStatus()),
-      maybe(metrics && !clusterScoped, () => api.getDashboardDataIntegrity().then((d) => ({ catalog: d.catalogHealth, runtime: d.runtimeHealth ?? null }))),
+      maybe(metrics && !clusterScoped, () => api.getDashboardDataIntegrity().then((d): PlatformIntegrity => ({ catalog: d.catalogHealth, runtime: d.runtimeHealth ?? null, alerts: Array.isArray(d.alerts) ? d.alerts : [] }))),
       maybe(canCerts, () => api.getCertificates()),
       maybe(logs, () => api.getErrorLogs({ page: 1, pageSize: RECENT_ERROR_SAMPLE }).then((r) => r.logs)),
     ]);

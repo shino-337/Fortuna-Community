@@ -11,7 +11,7 @@ import { useOperationalMaterialization } from '../../hooks/useOperationalMateria
 import { can, P } from '../../lib/permissions';
 import { formatDateTime } from '../../lib/display';
 import { PAGE_TITLES } from '../../lib/pageTitles';
-import type { Agent, ErrorLog } from '../../types';
+import type { Agent, CatalogHealth, ErrorLog } from '../../types';
 import { usePlatformData } from './usePlatformData';
 import { ErrorLogTable } from './ErrorLogTable';
 
@@ -108,6 +108,35 @@ interface Issue {
   action?: string;
 }
 
+/** Core's catalog alerts ("catalog_stale: active SBOMs are not …") as readable sentences. */
+function catalogAlertMessages(alerts: string[]): string[] {
+  return alerts
+    .filter((a) => a.startsWith('catalog_') || a.startsWith('cve_reference'))
+    .filter((a) => !a.startsWith('catalog_mirror_version_missing'))
+    .map((a) => {
+      const msg = (a.includes(':') ? a.slice(a.indexOf(':') + 1) : a).trim();
+      return msg ? msg.charAt(0).toUpperCase() + msg.slice(1) : '';
+    })
+    .filter(Boolean);
+}
+
+/** Why the vulnerability feed stage needs attention, from the catalog status and Core's alerts. */
+function vulnerabilityFeedIssue(catalog: CatalogHealth, alerts: string[]): string {
+  if (catalog.cvesCount <= 0) return 'No vulnerability catalog loaded; check the fortuna-vulndb-update job.';
+  const messages = catalogAlertMessages(alerts);
+  if (messages.length > 0) return `Vulnerability feed: ${messages.join('; ')}.`;
+  switch (catalog.status) {
+    case 'unavailable':
+      return 'Vulnerability feed: CVE reference data is missing or incomplete.';
+    case 'stale':
+      return 'Vulnerability feed: active SBOMs are not fully matched against the active catalog.';
+    case 'degraded':
+      return 'Vulnerability feed is degraded.';
+    default:
+      return `Vulnerability feed status: ${catalog.status}.`;
+  }
+}
+
 function Dot({ tone }: { tone: Tone }) {
   return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} aria-hidden />;
 }
@@ -156,7 +185,7 @@ export const Platform: React.FC = () => {
   const lastScan = data.sync.data?.lastScan ?? null;
   const inventoryAge = minutesSince(lastScan, now);
 
-  const stages: { label: string; at: string | null | undefined; tone: Tone; detail: string }[] = [];
+  const stages: { label: string; at: string | null | undefined; tone: Tone; detail: string; issue?: string }[] = [];
   if (data.sync.data || data.sync.failed) {
     stages.push({
       label: 'Inventory',
@@ -182,11 +211,14 @@ export const Platform: React.FC = () => {
     );
   }
   if (catalog) {
+    const catalogLoaded = catalog.cvesCount > 0;
     stages.push({
       label: 'Vulnerability feed',
-      at: catalog.mirrorUpdatedAt ?? catalog.lastCveUpdatedAt,
-      tone: catalog.status === 'healthy' ? 'ok' : catalog.status === 'unavailable' ? 'bad' : 'warn',
-      detail: `${catalog.cvesCount.toLocaleString()} CVEs`,
+      // When the active catalog generation went live, not when the mirror last polled upstream.
+      at: catalog.activeCatalogActivatedAt ?? catalog.lastCveUpdatedAt,
+      tone: !catalogLoaded ? 'bad' : catalog.status === 'healthy' ? 'ok' : catalog.status === 'unavailable' ? 'bad' : 'warn',
+      detail: catalogLoaded ? `${catalog.cvesCount.toLocaleString()} CVEs` : 'No vulnerability catalog loaded',
+      issue: vulnerabilityFeedIssue(catalog, data.integrity.data?.alerts ?? []),
     });
   }
 
@@ -217,7 +249,7 @@ export const Platform: React.FC = () => {
     if (c.tone !== 'ok') issues.push({ tone: c.tone, text: `${c.name}: ${c.label.toLowerCase()}, last heard ${ago(c.laggingHeartbeat, now)}.` });
   }
   for (const s of stages) {
-    if (s.tone === 'warn' || s.tone === 'bad') issues.push({ tone: s.tone, text: `${s.label} last updated ${ago(s.at, now)}.` });
+    if (s.tone === 'warn' || s.tone === 'bad') issues.push({ tone: s.tone, text: s.issue ?? `${s.label} last updated ${ago(s.at, now)}.` });
   }
   for (const c of certs) {
     if (c.status === 'expired') issues.push({ tone: 'bad', text: `${c.name} has expired.`, to: canOpenCertificates ? '/monitoring/certificates' : undefined, action: 'Review certificate' });

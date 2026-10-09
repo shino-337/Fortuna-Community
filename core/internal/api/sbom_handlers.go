@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +55,10 @@ type MalwareMatchDTO struct {
 	Reason        string  `json:"reason"`
 	Confidence    float32 `json:"confidence"`
 	MalwareFamily string  `json:"malwareFamily,omitempty"`
+	// Sources names the feeds that list the package (aikido, osv, …).
+	Sources []string `json:"sources,omitempty"`
+	// AdvisoryIDs lists the malicious-package advisories (MAL-…) that matched it.
+	AdvisoryIDs []string `json:"advisoryIds,omitempty"`
 }
 
 // SBOMComponentDTO exposes component details for /sbom/{podId}
@@ -74,16 +79,18 @@ type SBOMComponentDTO struct {
 
 // VulnerabilityDTO is the payload for each CVE
 type VulnerabilityDTO struct {
-	ID           string  `json:"id"`
-	Severity     string  `json:"severity"`
-	CVSSScore    float32 `json:"cvssScore"`
-	Description  string  `json:"description,omitempty"`
-	FixedVersion string  `json:"fixedVersion,omitempty"`
-	Status       string  `json:"status,omitempty"`       // active | allowed | fixed
-	ExploitKnown bool    `json:"exploitKnown,omitempty"` // public exploit available
-	Allowed      bool    `json:"allowed,omitempty"`      // allowed by policy
-	Source       string  `json:"source,omitempty"`       // fortuna-core-cve-matcher (and variants)
-	Confidence   string  `json:"confidence,omitempty"`   // high (constrained OSV) | lower when matcher flags uncertainty
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	// SeveritySource says where Severity came from: vendor | advisory_cvss | nvd | cve_cvss | errata_cvss | default.
+	SeveritySource string  `json:"severitySource,omitempty"`
+	CVSSScore      float32 `json:"cvssScore"`
+	Description    string  `json:"description,omitempty"`
+	FixedVersion   string  `json:"fixedVersion,omitempty"`
+	Status         string  `json:"status,omitempty"`       // active | allowed | fixed
+	ExploitKnown   bool    `json:"exploitKnown,omitempty"` // listed in CISA KEV
+	Allowed        bool    `json:"allowed,omitempty"`      // allowed by policy
+	Source         string  `json:"source,omitempty"`       // fortuna-core-cve-matcher (and variants)
+	Confidence     string  `json:"confidence,omitempty"`   // high (constrained OSV) | lower when matcher flags uncertainty
 	// Advisories lists the advisories (GHSA, DSA, RHSA, …) that reported this vulnerability.
 	Advisories []string `json:"advisories,omitempty"`
 }
@@ -406,7 +413,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var matches []models.CVEMatch
-		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Order("severity DESC").Find(&matches).Error; err != nil {
+		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Order("id").Find(&matches).Error; err != nil {
 			respondDataUnavailable(c, "pod_sbom_cve_matches_unavailable", "Pod SBOM vulnerability evidence could not be loaded")
 			return
 		}
@@ -430,16 +437,26 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
-		byName := make(map[string][]models.CVEMatch)
+		matchesByComponent := groupMatchesByComponent(components, matches)
 		summary := vulnerabilitySummary{"critical": 0, "high": 0, "medium": 0, "low": 0}
-		for _, match := range matches {
-			byName[match.PackageName] = append(byName[match.PackageName], match)
-			sev := strings.ToLower(match.Severity)
-			if _, ok := summary[sev]; ok {
-				summary[sev]++
+		vulnerablePackageCount := 0
+		counted := make(map[uint]bool, len(matches))
+		for i := range components {
+			compMatches := matchesByComponent[i]
+			if len(compMatches) > 0 {
+				vulnerablePackageCount++
+			}
+			for _, match := range compMatches {
+				if counted[match.ID] {
+					continue
+				}
+				counted[match.ID] = true
+				sev := strings.ToLower(strings.TrimSpace(match.Severity))
+				if _, ok := summary[sev]; ok {
+					summary[sev]++
+				}
 			}
 		}
-		vulnerablePackageCount := len(byName)
 
 		activePod, err := sbomHasActivePod(db, sbom.ClusterID, sbom.PodUID)
 		if err != nil {
@@ -467,9 +484,8 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			GoVersion:              sbom.GoVersion,
 		}
 
-		severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
-		for _, comp := range components {
-			compMatches := byName[comp.ComponentName]
+		for i, comp := range components {
+			compMatches := matchesByComponent[i]
 			compDTO := SBOMComponentDTO{
 				ID:              comp.ID,
 				Name:            comp.ComponentName,
@@ -484,8 +500,8 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			var maxCVSS float32
 			var fixVer string
 			for _, match := range compMatches {
-				sev := strings.ToLower(match.Severity)
-				if maxSev == "" || severityOrder[sev] < severityOrder[maxSev] {
+				sev := strings.ToLower(strings.TrimSpace(match.Severity))
+				if maxSev == "" || severityRank(sev) > severityRank(maxSev) {
 					maxSev = sev
 				}
 				if match.CVSS > maxCVSS {
@@ -502,36 +518,30 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					confidence = "low"
 				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{
-					ID:           match.CVEID,
-					Severity:     sev,
-					CVSSScore:    match.CVSS,
-					Description:  desc,
-					FixedVersion: match.FixedVersion,
-					Status:       "active",
-					ExploitKnown: exploitKnown,
-					Allowed:      false,
-					Source:       source,
-					Confidence:   confidence,
-					Advisories:   []string(match.AdvisoryIDs),
+					ID:             match.CVEID,
+					Severity:       sev,
+					SeveritySource: match.SeveritySource,
+					CVSSScore:      match.CVSS,
+					Description:    desc,
+					FixedVersion:   match.FixedVersion,
+					Status:         "active",
+					ExploitKnown:   exploitKnown,
+					Allowed:        false,
+					Source:         source,
+					Confidence:     confidence,
+					Advisories:     []string(match.AdvisoryIDs),
 				})
 			}
+			sortVulnerabilities(compDTO.Vulnerabilities)
 			compDTO.MaxSeverity = maxSev
 			compDTO.MaxCVSS = maxCVSS
 			compDTO.FixVersion = fixVer
 			if mm, ok := byCompID[comp.ID]; ok {
-				compDTO.MalwareMatch = &MalwareMatchDTO{
-					Reason:        mm.Reason,
-					Confidence:    mm.Confidence,
-					MalwareFamily: mm.MalwareFamily,
-				}
+				compDTO.MalwareMatch = malwareMatchDTO(mm)
 			} else {
 				k := strings.ToLower(strings.TrimSpace(comp.ComponentName)) + ":" + strings.TrimSpace(comp.ComponentVersion)
 				if mm, ok2 := byNameVer[k]; ok2 {
-					compDTO.MalwareMatch = &MalwareMatchDTO{
-						Reason:        mm.Reason,
-						Confidence:    mm.Confidence,
-						MalwareFamily: mm.MalwareFamily,
-					}
+					compDTO.MalwareMatch = malwareMatchDTO(mm)
 				}
 			}
 			dto.Components = append(dto.Components, compDTO)
@@ -539,6 +549,85 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, dto)
 	}
+}
+
+func malwareMatchDTO(mm models.MalwareMatch) *MalwareMatchDTO {
+	return &MalwareMatchDTO{
+		Reason:        mm.Reason,
+		Confidence:    mm.Confidence,
+		MalwareFamily: mm.MalwareFamily,
+		Sources:       []string(mm.Sources),
+		AdvisoryIDs:   []string(mm.AdvisoryIDs),
+	}
+}
+
+// groupMatchesByComponent assigns CVE matches to the SBOM components (by index) they belong to.
+// A match belongs to the components with the same package name and version. A match whose
+// version matches no component of that name (legacy rows, version normalisation differences)
+// falls back to the same-name components that have no version-exact match of their own, so
+// two versions of one package never show each other's findings.
+func groupMatchesByComponent(components []models.SBOMComponent, matches []models.CVEMatch) map[int][]models.CVEMatch {
+	nameVer := func(name, version string) string { return name + "\x00" + strings.TrimSpace(version) }
+	componentsByNameVer := make(map[string][]int, len(components))
+	componentsByName := make(map[string][]int, len(components))
+	for i, comp := range components {
+		k := nameVer(comp.ComponentName, comp.ComponentVersion)
+		componentsByNameVer[k] = append(componentsByNameVer[k], i)
+		componentsByName[comp.ComponentName] = append(componentsByName[comp.ComponentName], i)
+	}
+	out := make(map[int][]models.CVEMatch)
+	var orphans []models.CVEMatch
+	for _, match := range matches {
+		idx, ok := componentsByNameVer[nameVer(match.PackageName, match.PackageVersion)]
+		if !ok {
+			orphans = append(orphans, match)
+			continue
+		}
+		for _, i := range idx {
+			out[i] = append(out[i], match)
+		}
+	}
+	exact := make(map[int]bool, len(out))
+	for i := range out {
+		exact[i] = true
+	}
+	for _, match := range orphans {
+		for _, i := range componentsByName[match.PackageName] {
+			if !exact[i] {
+				out[i] = append(out[i], match)
+			}
+		}
+	}
+	return out
+}
+
+// severityRank orders severities for display: critical > high > medium > low > unknown.
+func severityRank(sev string) int {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium", "moderate":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// sortVulnerabilities orders a component's findings by severity, then CVSS (highest first), then ID.
+func sortVulnerabilities(vulns []VulnerabilityDTO) {
+	sort.SliceStable(vulns, func(i, j int) bool {
+		if ri, rj := severityRank(vulns[i].Severity), severityRank(vulns[j].Severity); ri != rj {
+			return ri > rj
+		}
+		if vulns[i].CVSSScore != vulns[j].CVSSScore {
+			return vulns[i].CVSSScore > vulns[j].CVSSScore
+		}
+		return vulns[i].ID < vulns[j].ID
+	})
 }
 
 func sbomHasActivePod(db *gorm.DB, clusterID, podUID string) (bool, error) {

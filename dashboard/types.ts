@@ -1,14 +1,24 @@
 /** CVE vulnerability record with severity, CVSS score and remediation state. */
 export interface Vulnerability {
-  id: string; // CVE-ID
+  /** CVE ID, or the advisory ID (GHSA-…, DSA-…, …) when the finding has no CVE. */
+  id: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
-  description: string;
+  /** Where severity came from: vendor | advisory_cvss | nvd | cve_cvss | errata_cvss | default. */
+  severitySource?: string;
+  description?: string;
   fixedVersion?: string;
+  /** CVSS base score; 0 means unknown. */
   cvssScore: number;
   status?: 'active' | 'allowed' | 'fixed';
+  /** Listed in the CISA Known Exploited Vulnerabilities (KEV) catalog. */
   exploitKnown?: boolean;
-  exploitMaturity?: string;
   allowed?: boolean;
+  /** Matcher that produced the finding (e.g. fortuna-core-cve-matcher). */
+  source?: string;
+  /** high | low (low when the matcher flags the match as uncertain). */
+  confidence?: string;
+  /** Advisories (GHSA, DSA, RHSA, …) that reported this finding. */
+  advisories?: string[];
 }
 
 /** SBOM component (library, OS package or language runtime) with its vulnerabilities. */
@@ -34,6 +44,10 @@ export interface MalwareMatch {
   reason: 'MALWARE' | 'TELEMETRY' | string;
   confidence: number;
   malwareFamily?: string;
+  /** Feeds that list the package (aikido, osv, …). */
+  sources?: string[];
+  /** Malicious-package advisories (MAL-…) that matched it. */
+  advisoryIds?: string[];
 }
 
 /** Image trust signals are separate from package CVEs. */
@@ -1433,6 +1447,10 @@ export interface Insight {
   /** Populated from API for supply_chain_malware rows */
   affectedComponent?: string;
   affectedVersion?: string;
+  /** Vulnerability findings: first fixed version, when one is published. */
+  fixedVersion?: string;
+  /** Vulnerability findings: CVSS base score (absent when unknown). */
+  cvss?: number;
   title: string;
   description?: string;
   severity: string;

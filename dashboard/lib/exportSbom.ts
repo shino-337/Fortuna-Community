@@ -1,5 +1,11 @@
-import type { PodSbom, SbomComponent } from '../types';
+import type { PodSbom, SbomComponent, Vulnerability } from '../types';
 import { downloadText, toCsv } from './download';
+import { advisorySourceName, advisoryUrl } from './advisoryLinks';
+
+/** Advisories that reported a finding, without the finding's own ID. */
+function relatedAdvisories(v: Pick<Vulnerability, 'id' | 'advisories'>): string[] {
+  return Array.from(new Set((v.advisories ?? []).map((a) => a.trim()).filter((a) => a && a !== v.id)));
+}
 
 
 /**
@@ -21,6 +27,8 @@ export function exportSbomAsCsv(sbom: PodSbom): void {
     'Vulnerability Count',
     'CVE IDs',
     'Severities',
+    'Advisories',
+    'CISA KEV',
   ];
   const rows = (sbom.components || []).map((c: SbomComponent) => [
     sbom.sbomSource ?? '',
@@ -37,6 +45,8 @@ export function exportSbomAsCsv(sbom: PodSbom): void {
     String((c.vulnerabilities || []).length),
     (c.vulnerabilities || []).map((v) => v.id).join('; '),
     (c.vulnerabilities || []).map((v) => v.severity).join('; '),
+    Array.from(new Set((c.vulnerabilities || []).flatMap(relatedAdvisories))).join('; '),
+    (c.vulnerabilities || []).filter((v) => v.exploitKnown).map((v) => v.id).join('; '),
   ]);
   downloadText(toCsv([headers, ...rows]), `sbom-${sbom.podName || sbom.podId}-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
 }
@@ -85,16 +95,20 @@ function toCdxSeverity(input?: string): 'critical' | 'high' | 'medium' | 'low' |
   return 'unknown';
 }
 
-function toSpdxExternalRefsForVulns(vulns: Array<{ id?: string }>): Array<{ referenceCategory: string; referenceType: string; referenceLocator: string }> {
+function toSpdxExternalRefsForVulns(vulns: Array<{ id?: string; advisories?: string[] }>): Array<{ referenceCategory: string; referenceType: string; referenceLocator: string }> {
   const refs: Array<{ referenceCategory: string; referenceType: string; referenceLocator: string }> = [];
+  const seen = new Set<string>();
   for (const v of vulns || []) {
-    const id = (v?.id ?? '').trim();
-    if (!id) continue;
-    refs.push({
-      referenceCategory: 'SECURITY',
-      referenceType: 'advisory',
-      referenceLocator: `https://www.cve.org/CVERecord?id=${encodeURIComponent(id)}`,
-    });
+    for (const raw of [v?.id, ...(v?.advisories ?? [])]) {
+      const id = (raw ?? '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      refs.push({
+        referenceCategory: 'SECURITY',
+        referenceType: 'advisory',
+        referenceLocator: advisoryUrl(id),
+      });
+    }
   }
   return refs;
 }
@@ -178,27 +192,37 @@ export function exportSbomAsCycloneDxJson(sbom: PodSbom): void {
   }));
 
   const vulnerabilities = (sbom.components || []).flatMap((c: SbomComponent) =>
-    (c.vulnerabilities || []).map((v) => ({
-      id: v.id,
-      source: { name: 'CVE' },
-      ratings: [
-        {
-          severity: toCdxSeverity(v.severity),
-          score: v.cvssScore ?? undefined,
-          method: 'CVSSv31',
-        },
-      ],
-      analysis: {
-        state: v.status === 'fixed' ? 'resolved' : 'exploitable',
-      },
-      affects: [
-        {
-          ref: c.purl || `${c.name}@${c.version || 'unknown'}`,
-        },
-      ],
-      recommendation: v.fixedVersion ? `Upgrade to ${v.fixedVersion} or newer` : undefined,
-      description: v.description || undefined,
-    }))
+    (c.vulnerabilities || []).map((v) => {
+      const source = { name: advisorySourceName(v.id), url: advisoryUrl(v.id) };
+      const hasScore = typeof v.cvssScore === 'number' && v.cvssScore > 0;
+      const advisories = relatedAdvisories(v);
+      const properties = [
+        v.severitySource ? { name: 'fortuna:severitySource', value: v.severitySource } : null,
+        v.exploitKnown ? { name: 'fortuna:cisaKev', value: 'true' } : null,
+        v.confidence ? { name: 'fortuna:matchConfidence', value: v.confidence } : null,
+      ].filter((p): p is { name: string; value: string } => p !== null);
+      return {
+        id: v.id,
+        source,
+        ratings: [
+          // A CVSS score of 0 means "unknown": export the severity only, without claiming a score or method.
+          hasScore
+            ? { source, severity: toCdxSeverity(v.severity), score: v.cvssScore, method: 'CVSSv31' }
+            : { source, severity: toCdxSeverity(v.severity) },
+        ],
+        advisories: advisories.length > 0 ? advisories.map((id) => ({ title: id, url: advisoryUrl(id) })) : undefined,
+        // Matching a package version is not an exploitability analysis; only state what is known.
+        analysis: v.status === 'fixed' ? { state: 'resolved' } : undefined,
+        properties: properties.length > 0 ? properties : undefined,
+        affects: [
+          {
+            ref: c.purl || `${c.name}@${c.version || 'unknown'}`,
+          },
+        ],
+        recommendation: v.fixedVersion ? `Upgrade to ${v.fixedVersion} or newer` : undefined,
+        description: v.description || undefined,
+      };
+    })
   );
 
   const cdx = {

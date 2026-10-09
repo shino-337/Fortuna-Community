@@ -32,7 +32,9 @@ import { attackPathsForPodPath, networkForPodPath } from '../lib/entityLinks';
 import { PodAttackPaths, PodNextSteps } from '../components/PodNextSteps';
 import { ArrowLeft, Box, ShieldAlert, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
-import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
+import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore, cvssSeverity, formatCvss, severityRank } from '../lib/severity';
+import { KevBadge, LowConfidenceBadge, ReportedBy, SeveritySourceNote } from '../components/VulnerabilityChips';
+import { openAdvisory } from '../lib/advisoryLinks';
 import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
 import { SbomMetaBadges } from '../components/SbomMetaBadges';
@@ -128,9 +130,21 @@ const PodDetailContent: React.FC = () => {
   const [sbomStatusFilter, setSbomStatusFilter] = useState<string>('all');
   const [sbomOnlyVulnerable, setSbomOnlyVulnerable] = useState(false);
   const [sbomSearch, setSbomSearch] = useState<string>('');
-  const [sbomSort, setSbomSort] = useState<'name' | 'severity' | 'cve' | 'none'>('none');
+  const [sbomSort, setSbomSort] = useState<'name' | 'severity' | 'cve' | 'none'>('severity');
   const [sbomExpandedId, setSbomExpandedId] = useState<string | null>(null);
   const [selectedVulnerability, setSelectedVulnerability] = useState<Vulnerability | null>(null);
+  /** name@version of the package the drawer's vulnerability was found in. */
+  const [selectedVulnerabilityPackage, setSelectedVulnerabilityPackage] = useState<string>('');
+  const vulnerabilityDrawerCloseRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!selectedVulnerability) return;
+    vulnerabilityDrawerCloseRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedVulnerability(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedVulnerability]);
   const [runtimeMetrics, setRuntimeMetrics] = useState<PodRuntimeMetric[]>([]);
   const [processes, setProcesses] = useState<PodProcessItem[]>([]);
   const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
@@ -1280,7 +1294,7 @@ const PodDetailContent: React.FC = () => {
                   className="shrink-0"
                 >
                   <Download className="w-4 h-4 mr-2 shrink-0" />
-                  <span className="hidden sm:inline">Export </span>CSV
+                  <span><span className="hidden sm:inline">Export </span>CSV</span>
                 </Button>
                 <Button
                   size="sm"
@@ -1290,7 +1304,7 @@ const PodDetailContent: React.FC = () => {
                   className="shrink-0"
                 >
                   <Download className="w-4 h-4 mr-2 shrink-0" />
-                  <span className="hidden sm:inline">Export </span>JSON
+                  <span><span className="hidden sm:inline">Export </span>JSON</span>
                 </Button>
                 <Button
                   size="sm"
@@ -1329,6 +1343,16 @@ const PodDetailContent: React.FC = () => {
                 const comps = (sbom.components || []) as SbomComponentType[];
                 const severityOpts = ['all', 'critical', 'high', 'medium', 'low'] as const;
                 const statusOpts = ['all', 'active', 'allowed', 'fixed'] as const;
+                // Policy allow-listing and fixed/allowed statuses are not produced by the matcher yet;
+                // only show their columns and filters once some row actually carries them.
+                const showAllowColumn = comps.some((c) => (c.vulnerabilities ?? []).some((v) => v.allowed === true));
+                const showStatusFilter = comps.some(
+                  (c) =>
+                    ((c.status ?? 'active').toLowerCase() !== 'active') ||
+                    (c.vulnerabilities ?? []).some((v) => (v.status ?? 'active').toLowerCase() !== 'active'),
+                );
+                const showLicenseColumn = comps.some((c) => !!c.license?.trim());
+                const columnCount = 11 + (showLicenseColumn ? 1 : 0) + (showAllowColumn ? 1 : 0);
                 const filtered = comps
                   .filter((c) => {
                     if (
@@ -1345,7 +1369,11 @@ const PodDetailContent: React.FC = () => {
                       const q = sbomSearch.trim().toLowerCase();
                       const name = (c.name ?? '').toLowerCase();
                       const version = (c.version ?? '').toLowerCase();
-                      if (!name.includes(q) && !version.includes(q)) return false;
+                      const findingMatch = (c.vulnerabilities ?? []).some(
+                        (v) => v.id.toLowerCase().includes(q) || (v.advisories ?? []).some((a) => a.toLowerCase().includes(q)),
+                      );
+                      const malwareMatch = (c.malwareMatch?.advisoryIds ?? []).some((a) => a.toLowerCase().includes(q));
+                      if (!name.includes(q) && !version.includes(q) && !findingMatch && !malwareMatch) return false;
                     }
                     return true;
                   })
@@ -1355,10 +1383,12 @@ const PodDetailContent: React.FC = () => {
                       return (a.name ?? '').localeCompare(b.name ?? '');
                     }
                     if (sbomSort === 'severity') {
-                      const order: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, '': 0 };
-                      const sa = order[(a.maxSeverity ?? '').toLowerCase()] ?? 0;
-                      const sb = order[(b.maxSeverity ?? '').toLowerCase()] ?? 0;
-                      return sb - sa;
+                      return (
+                        Number(!!b.malwareMatch) - Number(!!a.malwareMatch) ||
+                        severityRank(b.maxSeverity) - severityRank(a.maxSeverity) ||
+                        (b.cveCount ?? b.vulnerabilities?.length ?? 0) - (a.cveCount ?? a.vulnerabilities?.length ?? 0) ||
+                        (b.maxCvss ?? 0) - (a.maxCvss ?? 0)
+                      );
                     }
                     if (sbomSort === 'cve') {
                       const ca = a.cveCount ?? a.vulnerabilities?.length ?? 0;
@@ -1389,6 +1419,7 @@ const PodDetailContent: React.FC = () => {
                             ))}
                           </div>
                         </div>
+                        {showStatusFilter && (
                         <div className="min-w-0 flex-1 space-y-1.5">
                           <span className="text-caption font-semibold uppercase tracking-wide text-muted">Status</span>
                           <div className="flex flex-wrap gap-1">
@@ -1407,6 +1438,7 @@ const PodDetailContent: React.FC = () => {
                             ))}
                           </div>
                         </div>
+                        )}
                       </div>
                       <div className="flex flex-col gap-3 border-t border-border/80 pt-3 sm:flex-row sm:flex-wrap sm:items-center">
                         <label className="flex items-center gap-2 text-body text-text cursor-pointer min-w-0 shrink-0">
@@ -1424,7 +1456,7 @@ const PodDetailContent: React.FC = () => {
                             type="text"
                             value={sbomSearch}
                             onChange={(e) => setSbomSearch(e.target.value)}
-                            placeholder="Package or version…"
+                            placeholder="Package, version, CVE or advisory…"
                             className="bg-base border border-border rounded-md px-2.5 py-2 text-body text-text w-full placeholder:text-muted-2"
                           />
                         </div>
@@ -1473,19 +1505,20 @@ const PodDetailContent: React.FC = () => {
                               <th className={UI_TH_COMPACT}>Malware</th>
                               <th className={UI_TH_COMPACT}>Version</th>
                               <th className={UI_TH_COMPACT}>Type</th>
-                              <th className={UI_TH_COMPACT}>License</th>
+                              {showLicenseColumn && <th className={UI_TH_COMPACT}>License</th>}
                               <th className={`${UI_TH_COMPACT} text-right`}>CVE</th>
                               <th className={UI_TH_COMPACT}>Severity</th>
                               <th className={`${UI_TH_COMPACT} text-right`}>CVSS</th>
                               <th className={UI_TH_COMPACT}>Fix</th>
                               <th className={UI_TH_COMPACT}>Status</th>
-                              <th className={`${UI_TH_COMPACT} text-center`}>Exploit</th>
-                              <th className={`${UI_TH_COMPACT} text-center`}>Allow</th>
+                              <th className={`${UI_TH_COMPACT} text-center`} title="Listed in the CISA Known Exploited Vulnerabilities catalog">KEV</th>
+                              {showAllowColumn && <th className={`${UI_TH_COMPACT} text-center`}>Allow</th>}
                             </tr>
                           </thead>
                         <tbody>
-                          {filtered.map((c, i) => {
-                            const rowId = `${c.name}@${c.version ?? i}`;
+                          {filtered.map((c) => {
+                            const rowId = String(c.id);
+                            const packageLabel = `${c.name}@${c.version ?? ''}`;
                             const vulns = c.vulnerabilities ?? [];
                             const cveCount = c.cveCount ?? vulns.length;
                             const isExpanded = sbomExpandedId === rowId;
@@ -1505,11 +1538,23 @@ const PodDetailContent: React.FC = () => {
                                 >
                                   <td className={`${UI_TD_COMPACT_TIGHT} w-9 text-center align-middle !px-1`}>
                                     {hasCves ? (
-                                      isExpanded ? (
-                                        <ChevronDown className="w-4 h-4 text-muted mx-auto" />
-                                      ) : (
-                                        <ChevronRight className="w-4 h-4 text-muted mx-auto" />
-                                      )
+                                      <button
+                                        type="button"
+                                        aria-expanded={isExpanded}
+                                        aria-controls={`sbom-findings-${rowId}`}
+                                        aria-label={`${isExpanded ? 'Hide' : 'Show'} ${cveCount} finding${cveCount === 1 ? '' : 's'} for ${packageLabel}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSbomExpandedId(isExpanded ? null : rowId);
+                                        }}
+                                        className="rounded p-0.5 text-muted hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+                                      >
+                                        {isExpanded ? (
+                                          <ChevronDown className="w-4 h-4 mx-auto" aria-hidden />
+                                        ) : (
+                                          <ChevronRight className="w-4 h-4 mx-auto" aria-hidden />
+                                        )}
+                                      </button>
                                     ) : (
                                       <span className="w-4 inline-block" />
                                     )}
@@ -1542,9 +1587,11 @@ const PodDetailContent: React.FC = () => {
                                   <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-muted font-mono whitespace-nowrap`}>
                                     {sbomTypeLabel(c.type)}
                                   </td>
-                                  <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-muted max-w-[6rem] truncate`} title={c.license ?? undefined}>
-                                    {c.license ?? '—'}
-                                  </td>
+                                  {showLicenseColumn && (
+                                    <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-muted max-w-[6rem] truncate`} title={c.license || undefined}>
+                                      {c.license || '—'}
+                                    </td>
+                                  )}
                                   <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-right tabular-nums whitespace-nowrap`}>
                                     {cveCount > 0 ? (
                                       <span className="text-amber-400 font-medium">{cveCount}</span>
@@ -1562,14 +1609,14 @@ const PodDetailContent: React.FC = () => {
                                       <span className="text-muted">—</span>
                                     )}
                                   </td>
-                                  <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-right tabular-nums text-muted whitespace-nowrap`}>
-                                    {c.maxCvss != null ? c.maxCvss : '—'}
+                                  <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-right tabular-nums whitespace-nowrap`}>
+                                    <span className={cvssSeverity(c.maxCvss) ? getSeverityTextClass(cvssSeverity(c.maxCvss)) : 'text-muted'}>{formatCvss(c.maxCvss)}</span>
                                   </td>
                                   <td
                                     className={`${UI_TD_COMPACT_TIGHT} align-middle font-mono text-muted max-w-[6rem] truncate`}
-                                    title={c.fixVersion ?? undefined}
+                                    title={c.fixVersion || undefined}
                                   >
-                                    {c.fixVersion ?? '—'}
+                                    {c.fixVersion || '—'}
                                   </td>
                                   <td className={`${UI_TD_COMPACT_TIGHT} align-middle whitespace-nowrap`}>
                                     {mm ? (
@@ -1586,28 +1633,28 @@ const PodDetailContent: React.FC = () => {
                                   </td>
                                   <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-center whitespace-nowrap`}>
                                     {vulns.some((v) => v.exploitKnown) ? (
-                                      <span className="text-amber-400" title="Public exploit available">🔥</span>
-                                    ) : vulns.some((v) => v.exploitMaturity && v.exploitMaturity.toLowerCase().includes('poc')) ? (
-                                      <span className="text-amber-500" title="PoC available">⚠️</span>
+                                      <KevBadge />
                                     ) : (
-                                      <span className="text-muted" title="No known exploit">—</span>
+                                      <span className="text-muted" title="Not listed in CISA KEV" aria-label="Not listed in CISA KEV">—</span>
                                     )}
                                   </td>
-                                  <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-center whitespace-nowrap`}>
-                                    {vulns.length === 0 ? (
-                                      <span className="text-muted">—</span>
-                                    ) : vulns.every((v) => v.allowed) ? (
-                                      <span className="text-emerald-400" title="Allowed by policy">✅</span>
-                                    ) : vulns.some((v) => v.allowed) ? (
-                                      <span className="text-amber-400" title="Pending review">⏳</span>
-                                    ) : (
-                                      <span className="text-red-400" title="Not allowed">❌</span>
-                                    )}
-                                  </td>
+                                  {showAllowColumn && (
+                                    <td className={`${UI_TD_COMPACT_TIGHT} align-middle text-center whitespace-nowrap`}>
+                                      {vulns.length === 0 ? (
+                                        <span className="text-muted">—</span>
+                                      ) : vulns.every((v) => v.allowed) ? (
+                                        <span className="text-emerald-400" title="Allowed by policy"><span aria-hidden>✅ </span>Allowed</span>
+                                      ) : vulns.some((v) => v.allowed) ? (
+                                        <span className="text-amber-400" title="Some findings allowed by policy"><span aria-hidden>⏳ </span>Partial</span>
+                                      ) : (
+                                        <span className="text-red-400" title="Not allowed by policy"><span aria-hidden>❌ </span>No</span>
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                                 {isExpanded && vulns.length > 0 && (
-                                  <tr className="bg-surface-2/40">
-                                    <td colSpan={13} className="py-3 px-4">
+                                  <tr className="bg-surface-2/40" id={`sbom-findings-${rowId}`}>
+                                    <td colSpan={columnCount} className="py-3 px-4">
                                       <div className="pl-6 space-y-2 text-body">
                                         {vulns.map((v) => {
                                           const vStatus = (v.status ?? 'active').toLowerCase();
@@ -1619,23 +1666,35 @@ const PodDetailContent: React.FC = () => {
                                             >
                                               <button
                                                 type="button"
-                                                onClick={() => setSelectedVulnerability(v)}
-                                                className="font-mono text-text hover:text-brand underline cursor-pointer text-left"
+                                                onClick={() => {
+                                                  setSelectedVulnerability(v);
+                                                  setSelectedVulnerabilityPackage(packageLabel);
+                                                }}
+                                                className="font-mono text-text hover:text-brand underline cursor-pointer text-left break-all"
                                               >
                                                 {v.id}
                                               </button>
-                                              <span className={clsx('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-caption font-medium border', getSeverityBadgeClass(v.severity))}>
-                                                {getSeverityIcon(v.severity)} <span className="capitalize">{v.severity}</span>
+                                              <span className="inline-flex items-center gap-1.5">
+                                                <span className={clsx('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-caption font-medium border', getSeverityBadgeClass(v.severity))}>
+                                                  <span aria-hidden>{getSeverityIcon(v.severity)}</span> <span className="capitalize">{v.severity || 'unknown'}</span>
+                                                </span>
+                                                <SeveritySourceNote source={v.severitySource} />
                                               </span>
-                                              <span className="text-muted tabular-nums">{v.cvssScore ?? '—'}</span>
+                                              <span className={clsx('tabular-nums', getSeverityTextClass(cvssSeverity(v.cvssScore)))} title="CVSS score">
+                                                CVSS {formatCvss(v.cvssScore)}
+                                              </span>
                                               <span className="text-muted">
-                                                Fix: {v.fixedVersion ?? '—'}
+                                                Fix: {v.fixedVersion || '—'}
                                               </span>
-                                              <span className={clsx('px-1.5 py-0.5 rounded text-caption capitalize', statusBadgeClass(v.status))}>
-                                                {statusLabel}
-                                              </span>
-                                              {v.exploitKnown && <span className="text-amber-400" title="Exploit known">🔥</span>}
-                                              {v.allowed && <span className="text-emerald-400">✅ Allowed</span>}
+                                              {showStatusFilter && (
+                                                <span className={clsx('px-1.5 py-0.5 rounded text-caption capitalize', statusBadgeClass(v.status))}>
+                                                  {statusLabel}
+                                                </span>
+                                              )}
+                                              {v.exploitKnown && <KevBadge />}
+                                              {v.confidence === 'low' && <LowConfidenceBadge />}
+                                              {v.allowed && <span className="text-emerald-400"><span aria-hidden>✅ </span>Allowed</span>}
+                                              <ReportedBy advisories={v.advisories} findingId={v.id} className="basis-full" />
                                             </div>
                                           );
                                         })}
@@ -2376,96 +2435,102 @@ const PodDetailContent: React.FC = () => {
       )}
 
       {selectedVulnerability && (
-        <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-4 duration-200">
-          <div className="flex justify-between items-center p-4 border-b border-border bg-base/80">
-            <div className="flex items-center gap-3">
-              <div className={clsx('p-2 rounded-lg', getSeverityBadgeClass(selectedVulnerability.severity))}>
-                <ShieldAlert className="w-5 h-5" />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="vulnerability-drawer-title"
+          className="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-4 duration-200"
+        >
+          <div className="flex justify-between items-start gap-3 p-4 border-b border-border bg-base/80">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className={clsx('p-2 rounded-lg shrink-0', getSeverityBadgeClass(selectedVulnerability.severity))}>
+                <ShieldAlert className="w-5 h-5" aria-hidden />
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-text font-mono">{selectedVulnerability.id}</h3>
-                <span className={clsx('px-2 py-0.5 rounded text-caption font-medium border capitalize', getSeverityBadgeClass(selectedVulnerability.severity))}>
-                  {selectedVulnerability.severity}
-                </span>
+              <div className="min-w-0">
+                <h3 id="vulnerability-drawer-title" className="text-lg font-bold text-text font-mono break-all">{selectedVulnerability.id}</h3>
+                {selectedVulnerabilityPackage && (
+                  <p className="text-caption text-muted font-mono break-all mb-1" title="Affected package">
+                    in {selectedVulnerabilityPackage}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={clsx('px-2 py-0.5 rounded text-caption font-medium border capitalize', getSeverityBadgeClass(selectedVulnerability.severity))}>
+                    {selectedVulnerability.severity || 'unknown'}
+                  </span>
+                  <SeveritySourceNote source={selectedVulnerability.severitySource} />
+                  {selectedVulnerability.exploitKnown && <KevBadge />}
+                  {selectedVulnerability.confidence === 'low' && <LowConfidenceBadge />}
+                </div>
               </div>
             </div>
-            <button type="button" onClick={() => setSelectedVulnerability(null)} className="p-2 rounded-lg text-muted hover:bg-surface-2 hover:text-text">
-              <X className="w-5 h-5" />
+            <button
+              ref={vulnerabilityDrawerCloseRef}
+              type="button"
+              onClick={() => setSelectedVulnerability(null)}
+              aria-label="Close vulnerability details"
+              className="p-2 rounded-lg text-muted hover:bg-surface-2 hover:text-text shrink-0"
+            >
+              <X className="w-5 h-5" aria-hidden />
             </button>
           </div>
           <div className="p-4 space-y-4 overflow-y-auto flex-1">
             <div className="flex items-center justify-between p-3 bg-surface-2/50 rounded-lg border border-border">
               <div>
                 <p className="text-caption text-muted uppercase font-semibold mb-0.5">CVSS</p>
-                <p className={clsx('text-2xl font-bold', (selectedVulnerability.cvssScore ?? 0) >= 7 ? 'text-red-400' : (selectedVulnerability.cvssScore ?? 0) >= 4 ? 'text-amber-400' : 'text-text')}>
-                  {selectedVulnerability.cvssScore?.toFixed(1) ?? '—'}
+                <p className={clsx('text-2xl font-bold', cvssSeverity(selectedVulnerability.cvssScore) ? getSeverityTextClass(cvssSeverity(selectedVulnerability.cvssScore)) : 'text-muted')}>
+                  {formatCvss(selectedVulnerability.cvssScore)}
                 </p>
               </div>
               <div>
                 <p className="text-caption text-muted uppercase font-semibold mb-0.5">Status</p>
-                <p className="text-body font-medium text-text capitalize">{selectedVulnerability.status ?? 'active'}</p>
+                <p className="text-body font-medium text-text capitalize">{selectedVulnerability.status || 'active'}</p>
               </div>
             </div>
-            {selectedVulnerability.description && (
+            <ReportedBy advisories={selectedVulnerability.advisories} findingId={selectedVulnerability.id} />
+            {selectedVulnerability.exploitKnown && (
+              <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10">
+                <p className="text-caption font-semibold text-red-300 uppercase tracking-wider mb-1">CISA KEV</p>
+                <p className="text-body text-text">Listed in the CISA Known Exploited Vulnerabilities catalog: exploited in the wild. Prioritise remediation.</p>
+              </div>
+            )}
+            {selectedVulnerability.description?.trim() && (
               <div>
                 <p className="text-caption font-semibold text-muted uppercase tracking-wider mb-2 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5" /> Description
+                  <FileText className="w-3.5 h-3.5" aria-hidden /> Description
                 </p>
-                <p className="text-body text-text leading-relaxed bg-surface-2/30 p-3 rounded-lg border border-border">
-                  {selectedVulnerability.description}
+                <p className="text-body text-text leading-relaxed bg-surface-2/30 p-3 rounded-lg border border-border whitespace-pre-line break-words">
+                  {selectedVulnerability.description.trim()}
                 </p>
               </div>
             )}
             {selectedVulnerability.fixedVersion ? (
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
                 <div className="flex items-center gap-2 text-emerald-400 mb-1">
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4" aria-hidden />
                   <span className="text-caption font-semibold uppercase">Remediation</span>
                 </div>
                 <p className="text-body text-text">
-                  Fix available in version <span className="font-mono text-emerald-300">{selectedVulnerability.fixedVersion}</span>
+                  Fix available in version <span className="font-mono text-emerald-300 break-all">{selectedVulnerability.fixedVersion}</span>
                 </p>
               </div>
             ) : (
               <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                 <div className="flex items-center gap-2 text-amber-400 mb-1">
-                  <Info className="w-4 h-4" />
+                  <Info className="w-4 h-4" aria-hidden />
                   <span className="text-caption font-semibold uppercase">No fix version yet</span>
                 </div>
                 <p className="text-body text-text">Monitor advisories for updates.</p>
               </div>
             )}
-            {/* GAP 12: Exploit maturity & allowed status */}
-            {(selectedVulnerability.exploitKnown || selectedVulnerability.exploitMaturity || selectedVulnerability.allowed != null) && (
-              <div className="space-y-2">
-                {(selectedVulnerability.exploitKnown || selectedVulnerability.exploitMaturity) && (
-                  <div className="p-3 bg-surface-2/50 rounded-lg border border-border">
-                    <p className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Exploit Intelligence</p>
-                    <div className="flex flex-wrap gap-3 text-body text-text">
-                      {selectedVulnerability.exploitKnown && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="text-amber-400">🔥</span> Public exploit known
-                        </span>
-                      )}
-                      {selectedVulnerability.exploitMaturity && (
-                        <span>Maturity: <span className="font-medium text-text">{selectedVulnerability.exploitMaturity}</span></span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {selectedVulnerability.allowed != null && (
-                  <div className={clsx('p-3 rounded-lg border', selectedVulnerability.allowed ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20')}>
-                    <p className="text-body text-text">
-                      Policy: <span className={clsx('font-medium', selectedVulnerability.allowed ? 'text-emerald-300' : 'text-red-300')}>
-                        {selectedVulnerability.allowed ? '✅ Allowed by policy' : '❌ Not allowed'}
-                      </span>
-                    </p>
-                  </div>
-                )}
+            {selectedVulnerability.allowed === true && (
+              <div className="p-3 rounded-lg border bg-emerald-500/10 border-emerald-500/20">
+                <p className="text-body text-text">
+                  Policy: <span className="font-medium text-emerald-300">Allowed by policy</span>
+                </p>
               </div>
             )}
-            <Button className="w-full" size="sm" onClick={() => window.open(`https://www.cve.org/CVERecord?id=${encodeURIComponent(selectedVulnerability.id)}`, '_blank')}>
-              <ExternalLink className="w-4 h-4 mr-2" /> View CVE record
+            <Button className="w-full" size="sm" onClick={() => openAdvisory(selectedVulnerability.id)}>
+              <ExternalLink className="w-4 h-4 mr-2" aria-hidden /> View advisory
             </Button>
           </div>
         </div>
