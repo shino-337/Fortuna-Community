@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -14,12 +13,12 @@ import (
 func Migration156_VulnEcosystemRelease(db *gorm.DB) error {
 	log.Println("[Migration 156] Adding ecosystem_release to package_vulnerabilities and osv_packages...")
 
-	if db.Migrator().HasTable("package_vulnerabilities") && !db.Migrator().HasColumn(&models.PackageVulnerability{}, "ecosystem_release") {
+	if db.Migrator().HasTable("package_vulnerabilities") && !db.Migrator().HasColumn("package_vulnerabilities", "ecosystem_release") {
 		if err := db.Exec(`ALTER TABLE package_vulnerabilities ADD COLUMN ecosystem_release VARCHAR(64) NOT NULL DEFAULT ''`).Error; err != nil {
 			return fmt.Errorf("[Migration 156] add package_vulnerabilities.ecosystem_release: %w", err)
 		}
 	}
-	if db.Migrator().HasTable("osv_packages") && !db.Migrator().HasColumn(&models.OSVPackage{}, "ecosystem_release") {
+	if db.Migrator().HasTable("osv_packages") && !db.Migrator().HasColumn("osv_packages", "ecosystem_release") {
 		if err := db.Exec(`ALTER TABLE osv_packages ADD COLUMN ecosystem_release VARCHAR(64) NOT NULL DEFAULT ''`).Error; err != nil {
 			return fmt.Errorf("[Migration 156] add osv_packages.ecosystem_release: %w", err)
 		}

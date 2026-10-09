@@ -16,8 +16,8 @@ import (
 // the advisories that changed.
 //
 // vulnerabilities holds one row per CVE (or per advisory without a CVE) for KEV, EPSS and NVD
-// enrichment, and vuln_feed_state the download state of each feed. The legacy cves and
-// package_vulnerabilities tables stay until the matcher reads the new ones.
+// enrichment, and vuln_feed_state the download state of each feed. Migration 160 drops the
+// legacy cves, package_vulnerabilities and OSV mirror tables these replace.
 func Migration157_VulnCatalogVersioned(db *gorm.DB) error {
 	log.Println("[Migration 157] Creating versioned vulnerability catalog tables...")
 

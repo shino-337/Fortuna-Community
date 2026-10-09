@@ -214,8 +214,8 @@ Install with [Install on a cluster](../docs/getting-started/QUICKSTART.md), then
 - **`sboms`**: SBOM metadata and content
 - **`sbom_components`**: Individual packages from SBOMs
 - **`cve_matches`**: CVE matches for packages
-- **`cves`**: CVE metadata
-- **`package_vulnerabilities`**: Package-to-CVE mappings
+- **`vuln_advisories`**, **`vuln_advisory_refs`**, **`vuln_affected`**: the versioned vulnerability catalog (advisories, their CVE and GHSA references, affected package ranges), one row per advisory version and catalog generation
+- **`vulnerabilities`**: per-CVE enrichment (NVD, CISA KEV, EPSS)
 - **`insights`**: Security insights
 - **`pods`**: Pod information
 - **`clusters`**: Cluster information

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -12,12 +11,12 @@ import (
 func Migration140_AddCVECatalogGenerationProvenance(db *gorm.DB) error {
 	log.Println("[Migration 140] Adding catalog_generation_id to CVE catalog tables...")
 
-	if db.Migrator().HasTable("cves") && !db.Migrator().HasColumn(&models.CVE{}, "catalog_generation_id") {
+	if db.Migrator().HasTable("cves") && !db.Migrator().HasColumn("cves", "catalog_generation_id") {
 		if err := db.Exec(`ALTER TABLE cves ADD COLUMN catalog_generation_id BIGINT NOT NULL DEFAULT 0`).Error; err != nil {
 			return fmt.Errorf("[Migration 140] add cves.catalog_generation_id: %w", err)
 		}
 	}
-	if db.Migrator().HasTable("package_vulnerabilities") && !db.Migrator().HasColumn(&models.PackageVulnerability{}, "catalog_generation_id") {
+	if db.Migrator().HasTable("package_vulnerabilities") && !db.Migrator().HasColumn("package_vulnerabilities", "catalog_generation_id") {
 		if err := db.Exec(`ALTER TABLE package_vulnerabilities ADD COLUMN catalog_generation_id BIGINT NOT NULL DEFAULT 0`).Error; err != nil {
 			return fmt.Errorf("[Migration 140] add package_vulnerabilities.catalog_generation_id: %w", err)
 		}
