@@ -32,9 +32,6 @@ func newReplayWorkerTestDB(t *testing.T) *gorm.DB {
 		&models.SBOM{},
 		&models.SBOMComponent{},
 		&models.SBOMMatchRun{},
-		&models.OSVVulnerability{},
-		&models.OSVPackage{},
-		&models.OSVRange{},
 		&models.CVEMatch{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)

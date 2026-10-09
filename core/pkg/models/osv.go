@@ -4,6 +4,8 @@ import "time"
 
 // OSVVulnerability stores high-level OSV vulnerability metadata.
 // This is a mirror table for OSV JSON, focused initially on Go ecosystem (P2-7).
+// Legacy catalog table: nothing reads or writes it since the versioned catalog
+// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
 type OSVVulnerability struct {
 	ID                  string    `gorm:"primaryKey;type:varchar(100)" json:"id"` // OSV ID, e.g. GO-2023-1234
 	Summary             string    `gorm:"type:text" json:"summary"`
@@ -22,6 +24,8 @@ func (OSVVulnerability) TableName() string {
 }
 
 // OSVPackage represents (ecosystem, package_name) pairs affected by an OSV vulnerability.
+// Legacy catalog table: nothing reads or writes it since the versioned catalog
+// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
 type OSVPackage struct {
 	ID                  uint   `gorm:"primaryKey" json:"id"`
 	VulnID              string `gorm:"type:varchar(100);not null;index" json:"vulnId"`
@@ -36,6 +40,8 @@ func (OSVPackage) TableName() string {
 }
 
 // OSVRange flattens OSV "ranges[].events" for a given package into a simple introduced/fixed/last_affected row.
+// Legacy catalog table: nothing reads or writes it since the versioned catalog
+// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
 type OSVRange struct {
 	ID                  uint   `gorm:"primaryKey" json:"id"`
 	PackageID           uint   `gorm:"not null;index" json:"packageId"`

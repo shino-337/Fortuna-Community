@@ -462,7 +462,8 @@ func TestDashboardRuntimeHealthQueryFailureIsUnavailable(t *testing.T) {
 func TestDashboardCatalogHealthQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{})
-	require.NoError(t, db.Exec("CREATE TABLE cves (id INTEGER PRIMARY KEY)").Error)
+	// A catalog table missing the columns the health query reads.
+	require.NoError(t, db.Exec("CREATE TABLE catalog_generations (id INTEGER PRIMARY KEY)").Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
 	DashboardDataIntegrity(db)(c)

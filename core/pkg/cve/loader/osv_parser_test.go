@@ -68,7 +68,7 @@ func TestOSVEcosystemRelease(t *testing.T) {
 	}
 }
 
-func TestConvertToPackageVulnerabilities(t *testing.T) {
+func TestAffectedRanges(t *testing.T) {
 	doc := &OSVVulnerability{
 		ID: "DEBIAN-CVE-2025-0001",
 		Affected: []OSVAffected{
@@ -88,14 +88,10 @@ func TestConvertToPackageVulnerabilities(t *testing.T) {
 			},
 		},
 	}
-	got, err := ConvertToPackageVulnerabilities(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
 	type row struct{ eco, rel, name, start, endEx, endIn string }
 	var rows []row
-	for _, pv := range got {
-		rows = append(rows, row{pv.Ecosystem, pv.EcosystemRelease, pv.PackageName, pv.VersionStartIncluding, pv.VersionEndExcluding, pv.VersionEndIncluding})
+	for _, r := range affectedRanges(doc) {
+		rows = append(rows, row{r.Ecosystem, r.Release, r.PackageName, r.Introduced, r.Fixed, r.LastAffected})
 	}
 	want := []row{
 		{"debian", "11", "openssl", "0", "1.1.1w-0+deb11u2", ""},
@@ -105,12 +101,6 @@ func TestConvertToPackageVulnerabilities(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("rows:\n got %+v\nwant %+v", rows, want)
-	}
-
-	doc.Withdrawn = "2025-06-01T00:00:00Z"
-	got, _ = ConvertToPackageVulnerabilities(doc)
-	if len(got) != 0 {
-		t.Fatalf("withdrawn advisory produced %d rows", len(got))
 	}
 }
 

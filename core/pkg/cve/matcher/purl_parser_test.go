@@ -3,8 +3,8 @@ package matcher
 import (
 	"context"
 	"testing"
-	"time"
 
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/glebarez/sqlite"
@@ -123,19 +123,12 @@ func TestMatchSBOM_DebianBinaryMatchesSourceAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	now := time.Now()
-	if err := db.Create(&models.CVE{CVEID: "CVE-2025-15467", Severity: "HIGH", CVSSScore: 7.5, PublishedDate: &now, LastModifiedDate: &now}).Error; err != nil {
-		t.Fatalf("create CVE: %v", err)
-	}
-	if err := db.Create(&models.PackageVulnerability{
-		CVEID: "CVE-2025-15467", Ecosystem: "debian", PackageName: "openssl",
-		VersionEndIncluding: "3.0.18-1~deb12u2", FixedVersion: "3.0.19-1",
-	}).Error; err != nil {
-		t.Fatalf("create PackageVulnerability: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{ID: "CVE-2025-15467", Severity: "HIGH", Affected: []catalogtest.Range{
+		{Ecosystem: "debian", Package: "openssl", Fixed: "3.0.19-1"},
+	}})
 	sbom := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
 		t.Fatalf("create SBOM: %v", err)

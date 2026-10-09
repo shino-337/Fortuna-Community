@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/malware"
@@ -19,8 +19,8 @@ import (
 // SBOM E2E / integration test inventory (Fortuna Core):
 //
 //	internal/grpc/
-//	  sbom_e2e_go_purl_test.go          — SendSBOMFinding + Go multi-segment PURL + OSV mirror path
-//	  sbom_e2e_debian_epoch_arch_test.go — Debian epoch/arch PURL + seeded package_vulnerabilities
+//	  sbom_e2e_go_purl_test.go          — SendSBOMFinding + Go multi-segment PURL + versioned catalog
+//	  sbom_e2e_debian_epoch_arch_test.go — Debian epoch/arch PURL + seeded versioned catalog
 //	  handler_sbom_purl_sanitize_test.go — PURL validation / regeneration on ingest
 //	  handler_sbom_guard_test.go       — Monotonic SBOM guard (cannot bypass finalized SBOM)
 //	  handler_sbom_correlation_test.go — Correlation ID from gRPC context
@@ -48,8 +48,6 @@ func openRealisticPodE2EDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&models.SBOM{},
 		&models.SBOMComponent{},
-		&models.CVE{},
-		&models.PackageVulnerability{},
 		&models.CVEMatch{},
 		&models.MalwarePackage{},
 		&models.MalwareMatch{},
@@ -59,35 +57,21 @@ func openRealisticPodE2EDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func seedCVEWithPackageVuln(t *testing.T, db *gorm.DB, cveID, eco, pkg string, endExcl, fixed string) {
+// seedCatalogCVE seeds a HIGH advisory affecting eco/pkg below fixed in the versioned catalog.
+func seedCatalogCVE(t *testing.T, db *gorm.DB, cveID, eco, pkg, fixed string) {
 	t.Helper()
-	now := time.Now()
-	require.NoError(t, db.Create(&models.CVE{
-		CVEID:            cveID,
-		Severity:         "HIGH",
-		CVSSScore:        7.5,
-		Description:      "realistic pod e2e fixture",
-		Source:           "osv",
-		PublishedDate:    &now,
-		LastModifiedDate: &now,
-		ExploitSources:   pq.StringArray{},
-		CWEIDs:           pq.StringArray{},
-	}).Error)
-	require.NoError(t, db.Create(&models.PackageVulnerability{
-		CVEID:               cveID,
-		PackageName:         pkg,
-		Ecosystem:           eco,
-		PackageType:         eco,
-		VersionEndExcluding: endExcl,
-		FixedVersion:        fixed,
-		FixedInVersions:     pq.StringArray{},
-	}).Error)
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID:       cveID,
+		Severity: "HIGH",
+		Details:  "realistic pod e2e fixture",
+		Affected: []catalogtest.Range{{Ecosystem: eco, Package: pkg, Fixed: fixed}},
+	})
 }
 
 // TC-REAL-001: CoreDNS-style pod on Debian (kube-system) — openssl has CVE in DB; matcher must match.
 func TestE2E_RealisticPod_KubeSystem_CoreDNSStyle_DebianOpenSSL_FromDB(t *testing.T) {
 	db := openRealisticPodE2EDB(t)
-	seedCVEWithPackageVuln(t, db, "CVE-REAL-DEB-OPENSSL-001", "debian", "openssl", "2.0.0", "2.0.0")
+	seedCatalogCVE(t, db, "CVE-REAL-DEB-OPENSSL-001", "debian", "openssl", "2.0.0")
 
 	sbomRow := models.SBOM{
 		ImageName:     "registry.k8s.io/coredns/coredns",
@@ -140,14 +124,14 @@ func TestE2E_RealisticPod_KubeSystem_CoreDNSStyle_DebianOpenSSL_FromDB(t *testin
 			break
 		}
 	}
-	require.True(t, hitOpenSSL, "expected openssl CVE from seeded package_vulnerabilities (debian)")
+	require.True(t, hitOpenSSL, "expected openssl CVE from the seeded catalog (debian)")
 	t.Log("TC-REAL-001 PASSED: kube-system coredns-style pod → openssl CVE from DB")
 }
 
 // TC-REAL-002: Alpine pod (nginx ingress style) — busybox in alpine ecosystem, CVE in DB.
 func TestE2E_RealisticPod_AlpineIngressStyle_Busybox_FromDB(t *testing.T) {
 	db := openRealisticPodE2EDB(t)
-	seedCVEWithPackageVuln(t, db, "CVE-REAL-ALP-BUSY-001", "alpine", "busybox", "1.37.0", "1.37.0")
+	seedCatalogCVE(t, db, "CVE-REAL-ALP-BUSY-001", "alpine", "busybox", "1.37.0")
 
 	sbomRow := models.SBOM{
 		ImageName:     "registry.k8s.io/ingress-nginx/controller",
@@ -193,7 +177,7 @@ func TestE2E_RealisticPod_AlpineIngressStyle_Busybox_FromDB(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, hit, "expected busybox CVE from alpine package_vulnerabilities")
+	require.True(t, hit, "expected busybox CVE from the seeded alpine catalog ranges")
 	t.Log("TC-REAL-002 PASSED: alpine ingress-style pod → busybox CVE from DB")
 }
 
@@ -250,7 +234,7 @@ func TestE2E_RealisticPod_NPM_SupplyChain_Malware_FromDB(t *testing.T) {
 func TestE2E_RealisticPod_Combined_CVE_InDB_And_Malware_InDB(t *testing.T) {
 	db := openRealisticPodE2EDB(t)
 	// Epoch must match installed package (1:…); plain "1.3.0" would compare as 0:1.3.0 vs 1:1.2.13… and miss the bound.
-	seedCVEWithPackageVuln(t, db, "CVE-REAL-DEB-ZLIB-001", "debian", "zlib1g", "1:3.0", "1:3.0")
+	seedCatalogCVE(t, db, "CVE-REAL-DEB-ZLIB-001", "debian", "zlib1g", "1:3.0")
 	require.NoError(t, db.Create(&models.MalwarePackage{
 		PackageName: "evil-pkg", Version: "1.0.0", Reason: "MALWARE", Confidence: 0.95, Source: "test-feed",
 	}).Error)
@@ -314,7 +298,7 @@ func TestE2E_RealisticPod_Combined_CVE_InDB_And_Malware_InDB(t *testing.T) {
 // TC-REAL-005: generic busybox (risk-center minimal image) + fallback ecosystem — seed debian busybox, SBOM os unknown/generic PURL.
 func TestE2E_RealisticPod_GenericBusybox_CVEViaDistroFallback_FromDB(t *testing.T) {
 	db := openRealisticPodE2EDB(t)
-	seedCVEWithPackageVuln(t, db, "CVE-REAL-GEN-BUSY-001", "debian", "busybox", "1.37.0", "1.37.0")
+	seedCatalogCVE(t, db, "CVE-REAL-GEN-BUSY-001", "debian", "busybox", "1.37.0")
 
 	sbomRow := models.SBOM{
 		ImageName:     "docker.io/library/busybox",

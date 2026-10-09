@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -27,9 +28,6 @@ func TestDashboardDataIntegrity_CatalogHealthCurrentMirrorCoverage(t *testing.T)
 		&models.SBOM{},
 		&models.SBOMMatchRun{},
 		&models.CVEMatch{},
-		&models.CVE{},
-		&models.PackageVulnerability{},
-		&models.OSVPackage{},
 		&models.MirrorState{},
 		&models.CatalogGeneration{},
 		&models.MalwarePackage{},
@@ -48,20 +46,8 @@ func TestDashboardDataIntegrity_CatalogHealthCurrentMirrorCoverage(t *testing.T)
 	if err := db.Create(&models.CatalogGeneration{CatalogType: "malware", SourceName: "aikido", SourceDigest: "sha256:malware", Status: "active", StartedAt: nowForTest(), ActivatedAt: timePtrForTest()}).Error; err != nil {
 		t.Fatalf("seed malware generation: %v", err)
 	}
-	if err := db.Create(&models.CVE{CVEID: "GO-2023-2402", Severity: "MEDIUM", CVSSScore: 5, Source: "osv"}).Error; err != nil {
-		t.Fatalf("seed cve: %v", err)
-	}
-	if err := db.Create(&models.PackageVulnerability{
-		CVEID:               "GO-2023-2402",
-		PackageName:         "golang.org/x/crypto",
-		Ecosystem:           "go",
-		VersionEndExcluding: "0.17.0",
-	}).Error; err != nil {
-		t.Fatalf("seed package vulnerability: %v", err)
-	}
-	if err := db.Create(&models.OSVPackage{VulnID: "GO-2023-2402", Ecosystem: "go", PackageName: "golang.org/x/crypto"}).Error; err != nil {
-		t.Fatalf("seed osv package: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{ID: "GO-2023-2402", Aliases: []string{"CVE-2023-48795"}, Severity: "MEDIUM",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "golang.org/x/crypto", Type: "SEMVER", Fixed: "0.17.0"}}})
 	if err := db.Create(&models.MalwarePackage{PackageName: "bad", Version: "1.0.0", Reason: "MALWARE", Source: "aikido-predictions"}).Error; err != nil {
 		t.Fatalf("seed malware: %v", err)
 	}
@@ -158,9 +144,6 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenActiveSBOMNotMatchedCurren
 		&models.Pod{},
 		&models.SBOM{},
 		&models.SBOMMatchRun{},
-		&models.CVE{},
-		&models.PackageVulnerability{},
-		&models.OSVPackage{},
 		&models.MirrorState{},
 		&models.CatalogGeneration{},
 		&models.MalwarePackage{},
@@ -171,9 +154,8 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenActiveSBOMNotMatchedCurren
 	_ = db.Create(&models.MirrorState{Name: "osv", Version: 8}).Error
 	_ = db.Create(&models.CatalogGeneration{CatalogType: "cve", SourceName: "osv", SourceDigest: "sha256:test", Status: "active", MirrorVersion: "8", StartedAt: nowForTest(), ActivatedAt: timePtrForTest()}).Error
 	_ = db.Create(&models.CatalogGeneration{CatalogType: "malware", SourceName: "aikido", SourceDigest: "sha256:malware", Status: "active", StartedAt: nowForTest(), ActivatedAt: timePtrForTest()}).Error
-	_ = db.Create(&models.CVE{CVEID: "GO-2023-2402", Severity: "MEDIUM", Source: "osv"}).Error
-	_ = db.Create(&models.PackageVulnerability{CVEID: "GO-2023-2402", PackageName: "golang.org/x/crypto", Ecosystem: "go"}).Error
-	_ = db.Create(&models.OSVPackage{VulnID: "GO-2023-2402", Ecosystem: "go", PackageName: "golang.org/x/crypto"}).Error
+	catalogtest.Seed(t, db, catalogtest.Advisory{ID: "GO-2023-2402", Aliases: []string{"CVE-2023-48795"}, Severity: "MEDIUM",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "golang.org/x/crypto", Type: "SEMVER", Fixed: "0.17.0"}}})
 	_ = db.Create(&models.MalwarePackage{PackageName: "bad", Version: "1.0.0", Reason: "MALWARE"}).Error
 	_ = db.Create(&models.Pod{UID: "pod-active", ClusterID: "c1", Name: "api", Namespace: "default", ServiceAccount: "default"}).Error
 	_ = db.Create(&models.SBOM{ClusterID: "c1", ID: 201, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error
@@ -218,9 +200,6 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenMirrorMatchedButGeneration
 		&models.Pod{},
 		&models.SBOM{},
 		&models.SBOMMatchRun{},
-		&models.CVE{},
-		&models.PackageVulnerability{},
-		&models.OSVPackage{},
 		&models.MirrorState{},
 		&models.CatalogGeneration{},
 		&models.MalwarePackage{},
@@ -232,9 +211,8 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenMirrorMatchedButGeneration
 	_ = db.Create(&models.MirrorState{Name: "osv", Version: 8}).Error
 	_ = db.Create(&activeCatalog).Error
 	_ = db.Create(&models.CatalogGeneration{CatalogType: "malware", SourceName: "aikido", SourceDigest: "sha256:malware", Status: "active", StartedAt: nowForTest(), ActivatedAt: timePtrForTest()}).Error
-	_ = db.Create(&models.CVE{CVEID: "GO-2023-2402", Severity: "MEDIUM", Source: "osv"}).Error
-	_ = db.Create(&models.PackageVulnerability{CVEID: "GO-2023-2402", PackageName: "golang.org/x/crypto", Ecosystem: "go"}).Error
-	_ = db.Create(&models.OSVPackage{VulnID: "GO-2023-2402", Ecosystem: "go", PackageName: "golang.org/x/crypto"}).Error
+	catalogtest.Seed(t, db, catalogtest.Advisory{ID: "GO-2023-2402", Aliases: []string{"CVE-2023-48795"}, Severity: "MEDIUM",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "golang.org/x/crypto", Type: "SEMVER", Fixed: "0.17.0"}}})
 	_ = db.Create(&models.MalwarePackage{PackageName: "bad", Version: "1.0.0", Reason: "MALWARE"}).Error
 	_ = db.Create(&models.Pod{UID: "pod-active", ClusterID: "c1", Name: "api", Namespace: "default", ServiceAccount: "default"}).Error
 	_ = db.Create(&models.SBOM{ClusterID: "c1", ID: 301, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error

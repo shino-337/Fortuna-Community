@@ -33,7 +33,6 @@ type Matcher struct {
 	db             *gorm.DB
 	logger         *log.Logger
 	malwareManager MalwareChecker
-	osvCache       map[string][]models.OSVVulnerability
 }
 
 // MalwareChecker is satisfied by malware.Manager (avoids import cycle).
@@ -51,7 +50,6 @@ func NewMatcher(
 		comparator: sharedVersionComparator,
 		db:         db,
 		logger:     log.New(log.Writer(), "[CVEMatcher] ", log.LstdFlags),
-		osvCache:   make(map[string][]models.OSVVulnerability),
 	}
 }
 
@@ -223,7 +221,7 @@ func (m *Matcher) matchSBOM(
 			}
 		}
 
-		// For Go: use prefix list + alias resolution so OSV mirror lookup matches renames (e.g. github.com/coreos/etcd → go.etcd.io/etcd).
+		// For Go: use prefix list + alias resolution so the catalog lookup matches renames (e.g. github.com/coreos/etcd → go.etcd.io/etcd).
 		if queryEcosystem == "go" {
 			modulePath := strings.TrimSpace(purl.Name)
 			prefixes := normalizeGoModulePrefixes(modulePath)
@@ -515,7 +513,7 @@ func (m *Matcher) matchSBOM(
 
 	m.logger.Printf("✅ Found %d CVE matches for SBOM ID %d", len(matches), sbom.ID)
 
-	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and OSV mirror stdlib entries.
+	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and the catalog stdlib entries.
 	if !m.matchGoStdlib(ctx, sbom, &matches) {
 		*complete = false
 	}

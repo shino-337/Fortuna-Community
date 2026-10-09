@@ -44,8 +44,6 @@ func TestVersionedCatalogPostgres(t *testing.T) {
 	defer pool.Close()
 
 	require.NoError(t, db.AutoMigrate(&models.CatalogGeneration{}))
-	// Only what PruneCVEGenerations touches of the legacy table.
-	require.NoError(t, db.Exec(`CREATE TABLE package_vulnerabilities (id BIGSERIAL PRIMARY KEY, catalog_generation_id BIGINT, deleted_at TIMESTAMPTZ)`).Error)
 	require.NoError(t, migrations.Migration157_VulnCatalogVersioned(db))
 	ctx := context.Background()
 

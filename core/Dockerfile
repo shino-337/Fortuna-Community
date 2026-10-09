@@ -53,20 +53,11 @@ RUN --mount=type=cache,target=/gomodcache \
     -o fortuna-core ./cmd/main.go && \
     test -f fortuna-core
 
-# Build CVE loader binaries (optional; empty files if main.go missing for COPY --from=builder)
+# Build the CVE loader binary (optional; empty file if main.go missing for COPY --from=builder)
 RUN --mount=type=cache,target=/gomodcache \
     --mount=type=cache,target=/gocache \
     export GOMODCACHE=/gomodcache GOCACHE=/gocache; \
     set -e; \
-    if [ -f "./cmd/cve-loader/main.go" ]; then \
-      CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-        -ldflags="-w -s" \
-        -trimpath \
-        -buildvcs=false \
-        -o /cve-loader ./cmd/cve-loader/main.go; \
-    else \
-      : > /cve-loader; \
-    fi; \
     if [ -f "./cmd/cve-loader-optimized/main.go" ]; then \
       CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
         -ldflags="-w -s" \
@@ -109,17 +100,9 @@ WORKDIR /app
 
 # Copy binaries from builder (paths under builder WORKDIR /build/core)
 COPY --from=builder --chown=fortuna:fortuna /build/core/fortuna-core /app/fortuna-core
-# Copy CVE loaders if they exist and have content
-COPY --from=builder /cve-loader /tmp/cve-loader
+# Copy the CVE loader if it exists and has content
 COPY --from=builder /cve-loader-optimized /tmp/cve-loader-optimized
-RUN if [ -s /tmp/cve-loader ]; then \
-        mv /tmp/cve-loader /app/cve-loader && \
-        chmod +x /app/cve-loader && \
-        chown fortuna:fortuna /app/cve-loader; \
-    else \
-        rm -f /tmp/cve-loader; \
-    fi && \
-    if [ -s /tmp/cve-loader-optimized ]; then \
+RUN if [ -s /tmp/cve-loader-optimized ]; then \
         mv /tmp/cve-loader-optimized /app/cve-loader-optimized && \
         chmod +x /app/cve-loader-optimized && \
         chown fortuna:fortuna /app/cve-loader-optimized; \

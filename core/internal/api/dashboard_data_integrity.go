@@ -335,11 +335,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 		}
 	}
 
-	versioned, err := versionedCatalogLoaded(db)
-	if err != nil {
-		return health, err
-	}
-	updatedAt, err := vulnCatalogUpdatedAt(db, versioned)
+	updatedAt, err := vulnCatalogUpdatedAt(db)
 	if err != nil {
 		return health, err
 	}
@@ -622,9 +618,6 @@ func catalogHealthAlerts(health CatalogHealth) []string {
 	}
 	if health.ActiveCatalogGenerationID > 0 && health.ActiveSBOMsMissingGenerationMatch > 0 {
 		alerts = append(alerts, "catalog_generation_match_missing: active SBOMs need rematch against the active CVE catalog generation")
-	}
-	if health.OsvPackagesCount == 0 && health.PackageVulnerabilitiesCount > 0 {
-		alerts = append(alerts, "osv_mirror_empty_fallback_active: package_vulnerabilities fallback is required")
 	}
 	if health.MalwarePackagesCount == 0 {
 		alerts = append(alerts, "malware_catalog_empty: malware package matching is inactive")

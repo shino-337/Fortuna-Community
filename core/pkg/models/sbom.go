@@ -188,7 +188,6 @@ type CVEMatch struct {
 
 	// Relationships
 	SBOM SBOM `gorm:"foreignKey:SBOMID" json:"sbom,omitempty"`
-	CVE  CVE  `gorm:"foreignKey:CVEID;references:CVEID" json:"cve,omitempty"`
 }
 
 // TableName specifies the table name for CVEMatch
