@@ -19,7 +19,7 @@ func TestGetSBOMDetail_DefaultScopeExcludesStalePodSBOM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}, &models.CVE{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	stale := models.Pod{UID: "pod-stale", ClusterID: "c1", Name: "old-api", Namespace: "default"}
@@ -88,7 +88,7 @@ func TestGetSBOMDetail_DefaultScopeAllowsActivePodSBOM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}, &models.CVE{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := db.Create(&models.Pod{UID: "pod-active", ClusterID: "c1", Name: "api", Namespace: "default", ServiceAccount: "default"}).Error; err != nil {

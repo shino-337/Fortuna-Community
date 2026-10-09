@@ -14,7 +14,7 @@ Run every script from the repository root. Installing Fortuna needs none of them
 | | `agent-credential-tool.py`, `agent-certificate-tool.py` | Issue, rotate and revoke per-Agent HTTP tokens and mTLS certificates ([guide](../deploy/scoped-agent-credentials/README.md)) |
 | `utils/` | `ensure-fortuna-secrets.sh`, `create_mtls_secret.sh` | Create the application secrets and the CA and certificates for plain-manifest installs |
 | | `rotate_mtls_secret.sh` | Renew the certificates from the existing CA ([certificate expiry](../docs/operations/PRODUCTION_DEPLOYMENT.md#certificate-expiry)) |
-| | `load-cve-data.sh` | Download the OSV vulnerability catalog and load it into PostgreSQL; uses `sync-package-vulnerability-source.sh` and `ensure-cve-tables.sh` |
+| | `load-cve-data.sh` | Download the OSV vulnerability catalog and load it into PostgreSQL; uses `sync-package-vulnerability-source.sh` |
 | | `push-images-to-workers.sh` | Copy locally built images to other nodes over SSH when there is no registry; node credentials go in `push-images.config` (see the `.example`, ignored by Git) |
 | | `create-github-release.sh` | Create a `vX.Y.Z` tag and GitHub release |
 | `verify/` | `check-full-deployment.sh` | Check that Core, Dashboard, Agent, PostgreSQL, NATS and RBAC are healthy |

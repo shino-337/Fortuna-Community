@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/fortuna/core/pkg/cve/cvss"
 )
@@ -80,37 +79,6 @@ type OSVReference struct {
 	URL  string `json:"url"`
 }
 
-// ParsedCVE represents a parsed CVE ready for database insertion
-type ParsedCVE struct {
-	CVEID            string
-	CVSSScore        float64
-	CVSSVector       string
-	CVSSVersion      string
-	Severity         string
-	Title            string
-	Description      string
-	PublishedDate    *time.Time
-	LastModifiedDate *time.Time
-	References       string // JSON string
-	CWEIDs           []string
-	Source           string
-}
-
-// ParsedPackageVulnerability represents a package vulnerability mapping
-type ParsedPackageVulnerability struct {
-	CVEID                 string
-	PackageName           string
-	Ecosystem             string
-	EcosystemRelease      string // distro release the range applies to ("12" for Debian:12); "" when unscoped
-	RangeType             string
-	VersionStartIncluding string
-	VersionStartExcluding string
-	VersionEndIncluding   string
-	VersionEndExcluding   string
-	FixedVersion          string
-	DatabaseSpecific      string // JSON string
-}
-
 // ParseFile parses a single OSV.dev JSON file
 func ParseFile(path string) (*OSVVulnerability, error) {
 	data, err := os.ReadFile(path)
@@ -135,137 +103,7 @@ func ParseBytes(data []byte, name string) (*OSVVulnerability, error) {
 	return &vuln, nil
 }
 
-// ConvertToCVE converts OSV vulnerability to CVE model
-func ConvertToCVE(osv *OSVVulnerability) (*ParsedCVE, error) {
-	// Parse dates
-	var published, modified *time.Time
-	if osv.Published != "" {
-		t, err := time.Parse(time.RFC3339, osv.Published)
-		if err == nil {
-			published = &t
-		}
-	}
-	if osv.Modified != "" {
-		t, err := time.Parse(time.RFC3339, osv.Modified)
-		if err == nil {
-			modified = &t
-		}
-	}
-
-	// Parse CVSS
-	cvssScore, cvssVector, cvssVersion, severity := parseCVSS(osv.Severity)
-	if rating := AdvisoryRating(osv); rating != "" {
-		severity = rating
-	}
-	severity = legacyRating(severity)
-	if severity == "" {
-		// The legacy cves.severity column is NOT NULL and the matcher still reads it;
-		// vuln_advisories keeps the honest UNKNOWN.
-		severity = cvss.Medium
-	}
-
-	// Build references JSON
-	refsJSON := buildReferencesJSON(osv.References)
-
-	// Extract CWE IDs
-	cweIDs := extractCWEIDs(osv.DatabaseSpecific)
-
-	// Determine title
-	title := osv.Summary
-	if title == "" && osv.Details != "" {
-		// Use first line of details as title
-		lines := strings.Split(osv.Details, "\n")
-		if len(lines) > 0 {
-			title = lines[0]
-			if len(title) > 200 {
-				title = title[:200] + "..."
-			}
-		}
-	}
-
-	return &ParsedCVE{
-		CVEID:            osv.ID,
-		CVSSScore:        cvssScore,
-		CVSSVector:       cvssVector,
-		CVSSVersion:      cvssVersion,
-		Severity:         severity,
-		Title:            sanitizeUTF8(title),
-		Description:      sanitizeUTF8(osv.Details),
-		PublishedDate:    published,
-		LastModifiedDate: modified,
-		References:       refsJSON,
-		CWEIDs:           cweIDs,
-		Source:           "osv",
-	}, nil
-}
-
-// ConvertToPackageVulnerabilities converts OSV affected packages to package vulnerabilities.
-//
-// Each OSV range is a sequence of events; an `introduced` event opens an affected interval and
-// the next `fixed` or `last_affected` closes it. An interval left open (no fix yet) is kept as
-// ">= introduced". Explicit `versions` are used when an entry has no SEMVER/ECOSYSTEM range.
-// Withdrawn advisories produce no rows. Distro releases (Debian:12, Alpine:v3.20, …) are kept in
-// EcosystemRelease so one release's ranges are not applied to another.
-func ConvertToPackageVulnerabilities(osv *OSVVulnerability) ([]*ParsedPackageVulnerability, error) {
-	var result []*ParsedPackageVulnerability
-	if osv == nil || strings.TrimSpace(osv.Withdrawn) != "" {
-		return result, nil
-	}
-
-	for _, affected := range osv.Affected {
-		// Skip if no package info
-		if affected.Package.Name == "" || affected.Package.Ecosystem == "" {
-			continue
-		}
-		base := ParsedPackageVulnerability{
-			CVEID:            osv.ID,
-			PackageName:      affected.Package.Name,
-			Ecosystem:        normalizeEcosystem(affected.Package.Ecosystem),
-			EcosystemRelease: OSVEcosystemRelease(affected.Package.Ecosystem),
-		}
-		if affected.DatabaseSpecific != nil {
-			dbSpecJSON, _ := json.Marshal(affected.DatabaseSpecific)
-			base.DatabaseSpecific = string(dbSpecJSON)
-		}
-
-		versionRanges := 0
-		for _, r := range affected.Ranges {
-			rt := strings.ToUpper(strings.TrimSpace(r.Type))
-			// GIT ranges carry commit hashes, not package versions.
-			if rt != "SEMVER" && rt != "ECOSYSTEM" {
-				continue
-			}
-			versionRanges++
-			for _, iv := range OSVRangeIntervals(r.Events) {
-				pv := base
-				pv.RangeType = rt
-				pv.VersionStartIncluding = iv.Introduced
-				switch {
-				case iv.Fixed != "":
-					pv.VersionEndExcluding = iv.Fixed
-					pv.FixedVersion = iv.Fixed
-				case iv.LastAffected != "":
-					pv.VersionEndIncluding = iv.LastAffected
-				}
-				result = append(result, &pv)
-			}
-		}
-
-		if versionRanges == 0 {
-			for _, v := range uniqueVersions(affected.Versions, maxExplicitVersionsPerPackage) {
-				pv := base
-				pv.RangeType = "EXPLICIT"
-				pv.VersionStartIncluding = v
-				pv.VersionEndIncluding = v
-				result = append(result, &pv)
-			}
-		}
-	}
-
-	return result, nil
-}
-
-// maxExplicitVersionsPerPackage bounds rows created from an OSV `versions` list.
+// maxExplicitVersionsPerPackage bounds the ranges created from an OSV `versions` list.
 const maxExplicitVersionsPerPackage = 2000
 
 // OSVInterval is one affected interval of an OSV range.
@@ -417,27 +255,6 @@ func NormalizeDistroRelease(distro, version string) string {
 	return v
 }
 
-// parseCVSS picks the advisory's CVSS vector (v3 first, then v4, then v2) and scores it with
-// the official formula. A missing or invalid vector returns score 0 and no severity.
-func parseCVSS(severities []OSVSeverity) (score float64, vector, version, severity string) {
-	for _, typ := range []string{"CVSS_V3", "CVSS_V4", "CVSS_V2"} {
-		for _, sev := range severities {
-			if sev.Type != typ {
-				continue
-			}
-			s, ver, ok := cvss.BaseScore(sev.Score)
-			if !ok {
-				continue
-			}
-			if ver == "2.0" {
-				return s, sev.Score, "V2", cvss.SeverityFromV2Score(s)
-			}
-			return s, sev.Score, strings.Replace(typ, "CVSS_", "", 1), cvss.SeverityFromScore(s)
-		}
-	}
-	return 0, "", "", ""
-}
-
 // AdvisoryRating returns the qualitative rating the advisory's own source gave it: GitHub's
 // database_specific.severity, the Ubuntu priority, or the highest Debian urgency of its
 // packages. "" when the source gave none.
@@ -485,14 +302,6 @@ func ratingOf(severities []OSVSeverity) string {
 		}
 	}
 	return ""
-}
-
-// legacyRating maps a rating onto the four levels the legacy cves table and matcher know.
-func legacyRating(r string) string {
-	if r == cvss.Negligible {
-		return cvss.Low
-	}
-	return r
 }
 
 // buildReferencesJSON converts OSV references to JSON string

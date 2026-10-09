@@ -102,15 +102,6 @@ func TestBuildAdvisoryRatings(t *testing.T) {
 		t.Errorf("vendor severities = %v", got)
 	}
 
-	// No CVSS: the legacy row keeps MEDIUM but no made-up score, and the vendor rating wins.
-	legacy, err := ConvertToCVE(osv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacy.Severity != cvss.Low || legacy.CVSSScore != 0 {
-		t.Errorf("legacy severity = %s %.1f", legacy.Severity, legacy.CVSSScore)
-	}
-
 	mal := []byte(`{"id": "MAL-2024-1", "affected": [{"package": {"ecosystem": "npm", "name": "evil"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}]}]}`)
 	osv, err = ParseBytes(mal, "test")
 	if err != nil {
@@ -119,22 +110,5 @@ func TestBuildAdvisoryRatings(t *testing.T) {
 	adv = BuildAdvisory(osv, mal)
 	if adv.Kind != "malware" || adv.Source != "ossf-malicious-packages" || adv.SourceSeverity != "" {
 		t.Errorf("malware advisory = %+v", adv)
-	}
-	legacy, _ = ConvertToCVE(osv)
-	if legacy.Severity != cvss.Medium || legacy.CVSSScore != 0 {
-		t.Errorf("legacy severity without any rating = %s %.1f", legacy.Severity, legacy.CVSSScore)
-	}
-}
-
-func TestLegacyCVSSUsesOfficialFormula(t *testing.T) {
-	score, vector, version, severity := parseCVSS([]OSVSeverity{
-		{Type: "CVSS_V4", Score: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"},
-		{Type: "CVSS_V3", Score: "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"},
-	})
-	if score != 7.3 || version != "V3" || severity != cvss.High || vector == "" {
-		t.Errorf("parseCVSS = %.1f %s %s %s", score, vector, version, severity)
-	}
-	if score, _, _, sev := parseCVSS([]OSVSeverity{{Type: "CVSS_V3", Score: "garbage"}}); score != 0 || sev != "" {
-		t.Errorf("invalid vector scored %.1f %s", score, sev)
 	}
 }

@@ -28,7 +28,7 @@ Fortuna Core orchestrates security analysis across Kubernetes clusters. It recei
 core/
 ├── cmd/
 │   ├── main.go               # Core server
-│   ├── cve-loader/           # Loads an OSV/CVE catalog into PostgreSQL
+│   ├── cve-loader-optimized/ # Loads OSV advisories into the versioned vulnerability catalog
 │   └── migration-rehearsal/  # Runs migrations against a restored backup
 ├── internal/
 │   ├── api/                  # REST handlers; routes*.go register them and

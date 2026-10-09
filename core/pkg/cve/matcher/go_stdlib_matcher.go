@@ -9,7 +9,7 @@ import (
 )
 
 // matchGoStdlib matches Go stdlib vulnerabilities based on SBOM-level GoVersion
-// and OSV mirror entries for ecosystem=go, package_name=stdlib. It reports false when the
+// and catalog entries for ecosystem=go, package_name=stdlib. It reports false when the
 // stdlib advisories could not be loaded.
 func (m *Matcher) matchGoStdlib(
 	ctx context.Context,

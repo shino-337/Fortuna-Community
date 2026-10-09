@@ -4,10 +4,9 @@ import (
 	"context"
 	"sort"
 	"testing"
-	"time"
 
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/cve/database"
-	"github.com/fortuna/core/pkg/mirror/osv"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -41,29 +40,24 @@ func TestMatchSBOM_UsesRangesOfTheComponentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	now := time.Now()
-	for _, id := range []string{"CVE-2025-1111", "CVE-2025-2222", "CVE-2025-3333"} {
-		if err := db.Create(&models.CVE{CVEID: id, Severity: "HIGH", CVSSScore: 7.5, PublishedDate: &now, LastModifiedDate: &now}).Error; err != nil {
-			t.Fatalf("create CVE: %v", err)
-		}
-	}
-	rows := []models.PackageVulnerability{
+	catalogtest.Seed(t, db,
 		// 1111: fixed in Debian 12 below the installed version; the Debian 11 range would match it.
-		{CVEID: "CVE-2025-1111", Ecosystem: "debian", EcosystemRelease: "11", PackageName: "openssl", VersionStartIncluding: "0", VersionEndExcluding: "3.9.9-1"},
-		{CVEID: "CVE-2025-1111", Ecosystem: "debian", EcosystemRelease: "12", PackageName: "openssl", VersionStartIncluding: "0", VersionEndExcluding: "3.0.11-1~deb12u1", FixedVersion: "3.0.11-1~deb12u1"},
+		catalogtest.Advisory{ID: "CVE-2025-1111", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Debian:11", Package: "openssl", Fixed: "3.9.9-1"},
+			{Ecosystem: "Debian:12", Package: "openssl", Fixed: "3.0.11-1~deb12u1"},
+		}},
 		// 2222: no fix yet in Debian 12.
-		{CVEID: "CVE-2025-2222", Ecosystem: "debian", EcosystemRelease: "12", PackageName: "openssl", VersionStartIncluding: "0"},
+		catalogtest.Advisory{ID: "CVE-2025-2222", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Debian:12", Package: "openssl"},
+		}},
 		// 3333: only Debian 11 is affected.
-		{CVEID: "CVE-2025-3333", Ecosystem: "debian", EcosystemRelease: "11", PackageName: "openssl", VersionStartIncluding: "0", VersionEndExcluding: "9.9.9"},
-	}
-	for i := range rows {
-		if err := db.Create(&rows[i]).Error; err != nil {
-			t.Fatalf("create PackageVulnerability: %v", err)
-		}
-	}
+		catalogtest.Advisory{ID: "CVE-2025-3333", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Debian:11", Package: "openssl", Fixed: "9.9.9"},
+		}},
+	)
 
 	run := func(purl, osVersion string) []string {
 		t.Helper()
@@ -114,33 +108,27 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// Through the OSV mirror tables: before, the two releases' ranges of one advisory were merged by
-// advisory id and only one survived, so the result depended on row order.
-func TestMatchSBOM_OSVMirrorReleaseRanges(t *testing.T) {
+// One advisory covering two releases: each release's range applies only to that release, so the
+// result does not depend on row order.
+func TestMatchSBOM_AdvisoryReleaseRanges(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	ctx := context.Background()
-	docs := []*osv.Document{
-		{ID: "DEBIAN-CVE-2025-1111", Aliases: []string{"CVE-2025-1111"}, Affected: []osv.Affected{
-			{Package: osv.Package{Ecosystem: "Debian:11", Name: "openssl"}, Ranges: []osv.Range{{Type: "ECOSYSTEM", Events: []osv.Event{{Introduced: "0"}, {Fixed: "3.9.9-1"}}}}},
-			{Package: osv.Package{Ecosystem: "Debian:12", Name: "openssl"}, Ranges: []osv.Range{{Type: "ECOSYSTEM", Events: []osv.Event{{Introduced: "0"}, {Fixed: "3.0.11-1~deb12u1"}}}}},
+	catalogtest.Seed(t, db,
+		catalogtest.Advisory{ID: "DEBIAN-CVE-2025-1111", Aliases: []string{"CVE-2025-1111"}, Affected: []catalogtest.Range{
+			{Ecosystem: "Debian:11", Package: "openssl", Fixed: "3.9.9-1"},
+			{Ecosystem: "Debian:12", Package: "openssl", Fixed: "3.0.11-1~deb12u1"},
 		}},
-		{ID: "DEBIAN-CVE-2025-2222", Aliases: []string{"CVE-2025-2222"}, Affected: []osv.Affected{
-			{Package: osv.Package{Ecosystem: "Debian:11", Name: "openssl"}, Ranges: []osv.Range{{Type: "ECOSYSTEM", Events: []osv.Event{{Introduced: "0"}, {Fixed: "1.0"}}}}},
-			{Package: osv.Package{Ecosystem: "Debian:12", Name: "openssl"}, Ranges: []osv.Range{{Type: "ECOSYSTEM", Events: []osv.Event{{Introduced: "0"}}}}},
+		catalogtest.Advisory{ID: "DEBIAN-CVE-2025-2222", Aliases: []string{"CVE-2025-2222"}, Affected: []catalogtest.Range{
+			{Ecosystem: "Debian:11", Package: "openssl", Fixed: "1.0"},
+			{Ecosystem: "Debian:12", Package: "openssl"},
 		}},
-	}
-	for _, d := range docs {
-		if _, err := osv.IngestDocument(ctx, db, d); err != nil {
-			t.Fatalf("ingest: %v", err)
-		}
-	}
+	)
 	sbom := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
 		t.Fatal(err)

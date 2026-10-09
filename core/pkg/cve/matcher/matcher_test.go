@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fortuna/core/pkg/cve"
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
@@ -292,35 +292,20 @@ func TestOpenSSL_Debian12_CVEResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// Seed CVE and package_vulnerabilities (as OSV loader would)
-	now := time.Now()
-	cveRow := models.CVE{
-		CVEID:            "CVE-2025-15467",
-		Severity:         "HIGH",
-		CVSSScore:        7.5,
-		Description:      "Stack buffer overflow in OpenSSL (Debian 12 bookworm).",
-		PublishedDate:    &now,
-		LastModifiedDate: &now,
-	}
-	if err := db.Create(&cveRow).Error; err != nil {
-		t.Fatalf("create CVE: %v", err)
-	}
-	pv := models.PackageVulnerability{
-		CVEID:                 "CVE-2025-15467",
-		Ecosystem:             "debian",
-		PackageName:           "openssl",
-		VersionEndIncluding:   "3.0.18-1~deb12u2", // affected up to and including this version
-		VersionEndExcluding:   "",
-		VersionStartIncluding: "",
-		FixedVersion:          "3.0.19-1",
-	}
-	if err := db.Create(&pv).Error; err != nil {
-		t.Fatalf("create PackageVulnerability: %v", err)
-	}
+	// Seed the advisory in the versioned catalog (as the OSV loader would)
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID:       "CVE-2025-15467",
+		Severity: "HIGH",
+		Details:  "Stack buffer overflow in OpenSSL (Debian 12 bookworm).",
+		Affected: []catalogtest.Range{
+			// affected up to and including 3.0.18-1~deb12u2
+			{Ecosystem: "debian", Package: "openssl", LastAffected: "3.0.18-1~deb12u2"},
+		},
+	})
 
 	// SBOM for Debian 12 with openssl 3.0.18-1~deb12u2
 	sbom := &models.SBOM{
@@ -376,26 +361,13 @@ func TestOpenSSL_Debian12_GenericPURL_CVEResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	now := time.Now()
-	if err := db.Create(&models.CVE{
-		CVEID: "CVE-2025-15467", Severity: "HIGH", CVSSScore: 7.5,
-		PublishedDate: &now, LastModifiedDate: &now,
-	}).Error; err != nil {
-		t.Fatalf("create CVE: %v", err)
-	}
-	if err := db.Create(&models.PackageVulnerability{
-		CVEID:               "CVE-2025-15467",
-		Ecosystem:           "debian",
-		PackageName:         "openssl",
-		VersionEndIncluding: "3.0.18-1~deb12u2",
-		FixedVersion:        "3.0.19-1",
-	}).Error; err != nil {
-		t.Fatalf("create PackageVulnerability: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{ID: "CVE-2025-15467", Severity: "HIGH", Affected: []catalogtest.Range{
+		{Ecosystem: "debian", Package: "openssl", LastAffected: "3.0.18-1~deb12u2"},
+	}})
 
 	sbom := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
@@ -444,29 +416,19 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	now := time.Now()
 	// Example CVE for Kubernetes controller-manager (version range that includes v1.29.15)
-	if err := db.Create(&models.CVE{
-		CVEID: "CVE-2024-12345", Severity: "HIGH", CVSSScore: 8.1,
-		Description:   "Example Kubernetes CVE for controller-manager.",
-		PublishedDate: &now, LastModifiedDate: &now,
-	}).Error; err != nil {
-		t.Fatalf("create CVE: %v", err)
-	}
-	if err := db.Create(&models.PackageVulnerability{
-		CVEID:                 "CVE-2024-12345",
-		Ecosystem:             "go",
-		PackageName:           "k8s.io/kubernetes",
-		VersionStartIncluding: "v1.29.0",
-		VersionEndExcluding:   "v1.29.16",
-		FixedVersion:          "v1.29.16",
-	}).Error; err != nil {
-		t.Fatalf("create PackageVulnerability: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID:       "CVE-2024-12345",
+		Severity: "HIGH",
+		Details:  "Example Kubernetes CVE for controller-manager.",
+		Affected: []catalogtest.Range{
+			{Ecosystem: "go", Package: "k8s.io/kubernetes", Introduced: "v1.29.0", Fixed: "v1.29.16"},
+		},
+	})
 
 	sbom := &models.SBOM{
 		OSName:     "distroless",
@@ -518,26 +480,15 @@ func TestGoStdlibMatcher_VulnerableAndPatched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// Seed OSV stdlib vuln: GO-STDLIB-TEST, introduced 0, fixed 1.18.3
-	v := models.OSVVulnerability{ID: "GO-STDLIB-TEST", Summary: "stdlib vuln", Details: "details", Severity: "HIGH", CVSSScore: 7.5}
-	if err := db.Create(&v).Error; err != nil {
-		t.Fatalf("seed vuln: %v", err)
-	}
-	p := models.OSVPackage{VulnID: "GO-STDLIB-TEST", Ecosystem: "go", PackageName: "stdlib"}
-	if err := db.Create(&p).Error; err != nil {
-		t.Fatalf("seed package: %v", err)
-	}
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.18.3"}
-	if err := db.Create(&r).Error; err != nil {
-		t.Fatalf("seed range: %v", err)
-	}
+	// Seed stdlib vuln: GO-STDLIB-TEST, introduced 0, fixed 1.18.3
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-STDLIB-TEST", Summary: "stdlib vuln", Details: "details", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "stdlib", Type: "SEMVER", Fixed: "1.18.3"}},
+	})
 
 	mgr := database.NewPostgresManager(db)
 	matcher := NewMatcher(mgr, db)
@@ -579,7 +530,7 @@ func TestGoStdlibMatcher_VulnerableAndPatched(t *testing.T) {
 }
 
 // TestGoModuleAlias_EtcdMatch verifies that when SBOM has github.com/coreos/etcd/client/v3 and
-// OSV mirror has vulns only for go.etcd.io/etcd, alias resolution still produces a CVE match.
+// the catalog has vulns only for go.etcd.io/etcd, alias resolution still produces a CVE match.
 func TestGoModuleAlias_EtcdMatch(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -587,7 +538,6 @@ func TestGoModuleAlias_EtcdMatch(t *testing.T) {
 	}
 	if err := db.AutoMigrate(
 		&models.GoModuleAlias{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
 		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -598,19 +548,11 @@ func TestGoModuleAlias_EtcdMatch(t *testing.T) {
 		t.Fatalf("seed alias: %v", err)
 	}
 
-	// OSV vuln only for canonical go.etcd.io/etcd; version range includes v3.3.0
-	v := models.OSVVulnerability{ID: "GO-ETCD-ALIAS-TEST", Summary: "etcd vuln", Details: "details", Severity: "HIGH", CVSSScore: 8.0}
-	if err := db.Create(&v).Error; err != nil {
-		t.Fatalf("seed vuln: %v", err)
-	}
-	p := models.OSVPackage{VulnID: "GO-ETCD-ALIAS-TEST", Ecosystem: "go", PackageName: "go.etcd.io/etcd"}
-	if err := db.Create(&p).Error; err != nil {
-		t.Fatalf("seed package: %v", err)
-	}
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "3.3.99"}
-	if err := db.Create(&r).Error; err != nil {
-		t.Fatalf("seed range: %v", err)
-	}
+	// Advisory only for canonical go.etcd.io/etcd; version range includes v3.3.0
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-ETCD-ALIAS-TEST", Summary: "etcd vuln", Details: "details", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "go.etcd.io/etcd", Type: "SEMVER", Fixed: "3.3.99"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
@@ -760,25 +702,14 @@ func TestMatcher_ConflictResolution_PrefersGobinaryOverGomod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	// Seed OSV mirror vuln for module github.com/a/b; range includes v1.2.0 but not v1.1.0
-	v := models.OSVVulnerability{ID: "GO-CONFLICT-TEST", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
-	if err := db.Create(&v).Error; err != nil {
-		t.Fatalf("seed vuln: %v", err)
-	}
-	p := models.OSVPackage{VulnID: "GO-CONFLICT-TEST", Ecosystem: "go", PackageName: "github.com/a/b"}
-	if err := db.Create(&p).Error; err != nil {
-		t.Fatalf("seed pkg: %v", err)
-	}
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
-	if err := db.Create(&r).Error; err != nil {
-		t.Fatalf("seed range: %v", err)
-	}
+	// Seed vuln for module github.com/a/b; range includes v1.1.0 but not v1.2.0
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-CONFLICT-TEST", Summary: "test", Details: "d", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "1.1.99"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
@@ -829,18 +760,13 @@ func TestMatcher_TrustLevel_GracefulDegradation_AllLowAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	v := models.OSVVulnerability{ID: "GO-LOW-ONLY", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
-	_ = db.Create(&v).Error
-	p := models.OSVPackage{VulnID: "GO-LOW-ONLY", Ecosystem: "go", PackageName: "github.com/a/b"}
-	_ = db.Create(&p).Error
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
-	_ = db.Create(&r).Error
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-LOW-ONLY", Summary: "test", Details: "d", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "1.1.99"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized"}
 	_ = db.Create(sbom).Error
@@ -872,19 +798,14 @@ func TestMatcher_TrustLevel_LowSkippedWhenNonLowExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	// Vulnerability only for github.com/a/b (low trust component).
-	v := models.OSVVulnerability{ID: "GO-LOW-SKIP", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
-	_ = db.Create(&v).Error
-	p := models.OSVPackage{VulnID: "GO-LOW-SKIP", Ecosystem: "go", PackageName: "github.com/a/b"}
-	_ = db.Create(&p).Error
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
-	_ = db.Create(&r).Error
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-LOW-SKIP", Summary: "test", Details: "d", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "1.1.99"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized"}
 	_ = db.Create(sbom).Error
@@ -928,19 +849,14 @@ func TestMatcher_ResolveAfterTrustFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	// Vulnerability affects github.com/a/b in v1.1.x.
-	v := models.OSVVulnerability{ID: "GO-TRUST-ORDER", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
-	_ = db.Create(&v).Error
-	p := models.OSVPackage{VulnID: "GO-TRUST-ORDER", Ecosystem: "go", PackageName: "github.com/a/b"}
-	_ = db.Create(&p).Error
-	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
-	_ = db.Create(&r).Error
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "GO-TRUST-ORDER", Summary: "test", Details: "d", Severity: "HIGH",
+		Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "1.1.99"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized"}
 	_ = db.Create(sbom).Error
@@ -984,10 +900,7 @@ func TestMatcher_FallbackMode_ComponentLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	sbom := &models.SBOM{Status: "finalized"}
@@ -1019,54 +932,31 @@ func TestMatcher_CVECap_PrioritizesSeverityBeforeLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	now := time.Now()
 	// Seed 5 CRITICAL + 25 LOW for same package (total 30 > cap 25).
+	var advs []catalogtest.Advisory
 	for i := 1; i <= 5; i++ {
-		id := fmt.Sprintf("CVE-D3-CRIT-%02d", i)
-		if err := db.Create(&models.CVE{
-			CVEID:            id,
-			Severity:         "CRITICAL",
-			CVSSScore:        9.0 + float64(i)/10,
-			Description:      "critical test",
-			PublishedDate:    &now,
-			LastModifiedDate: &now,
-		}).Error; err != nil {
-			t.Fatalf("seed critical cve %s: %v", id, err)
-		}
-		if err := db.Create(&models.PackageVulnerability{
-			CVEID:               id,
-			Ecosystem:           "debian",
-			PackageName:         "openssl",
-			VersionEndIncluding: "9.9.9",
-		}).Error; err != nil {
-			t.Fatalf("seed critical pv %s: %v", id, err)
-		}
+		advs = append(advs, catalogtest.Advisory{
+			ID:       fmt.Sprintf("CVE-D3-CRIT-%02d", i),
+			Severity: "CRITICAL",
+			CVSSv3:   "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", // 9.8
+			Details:  "critical test",
+			Affected: []catalogtest.Range{{Ecosystem: "debian", Package: "openssl", LastAffected: "9.9.9"}},
+		})
 	}
 	for i := 1; i <= 25; i++ {
-		id := fmt.Sprintf("CVE-D3-LOW-%02d", i)
-		if err := db.Create(&models.CVE{
-			CVEID:            id,
-			Severity:         "LOW",
-			CVSSScore:        2.0 + float64(i)/100,
-			Description:      "low test",
-			PublishedDate:    &now,
-			LastModifiedDate: &now,
-		}).Error; err != nil {
-			t.Fatalf("seed low cve %s: %v", id, err)
-		}
-		if err := db.Create(&models.PackageVulnerability{
-			CVEID:               id,
-			Ecosystem:           "debian",
-			PackageName:         "openssl",
-			VersionEndIncluding: "9.9.9",
-		}).Error; err != nil {
-			t.Fatalf("seed low pv %s: %v", id, err)
-		}
+		advs = append(advs, catalogtest.Advisory{
+			ID:       fmt.Sprintf("CVE-D3-LOW-%02d", i),
+			Severity: "LOW",
+			CVSSv3:   "CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N", // 2.0
+			Details:  "low test",
+			Affected: []catalogtest.Range{{Ecosystem: "debian", Package: "openssl", LastAffected: "9.9.9"}},
+		})
 	}
+	catalogtest.Seed(t, db, advs...)
 
 	sb := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
 	if err := db.Create(sb).Error; err != nil {
@@ -1130,25 +1020,16 @@ func TestMatchSBOM_MultipleArchComponentsSamePackage_AllEvaluated(t *testing.T) 
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	if err := db.Create(&models.CVE{
-		CVEID:       "CVE-ARCH-0001",
-		Severity:    "HIGH",
-		Description: "arch regression test",
-	}).Error; err != nil {
-		t.Fatalf("seed cve: %v", err)
-	}
-	if err := db.Create(&models.PackageVulnerability{
-		CVEID:         "CVE-ARCH-0001",
-		Ecosystem:     "debian",
-		PackageName:   "openssl",
-		AffectedRange: ">=1.0.0, <2.0.0",
-	}).Error; err != nil {
-		t.Fatalf("seed package vulnerability: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID:       "CVE-ARCH-0001",
+		Severity: "HIGH",
+		Details:  "arch regression test",
+		Affected: []catalogtest.Range{{Ecosystem: "debian", Package: "openssl", Introduced: "1.0.0", Fixed: "2.0.0"}},
+	})
 
 	sbom := &models.SBOM{Status: "finalized", OSName: "debian"}
 	if err := db.Create(sbom).Error; err != nil {
@@ -1194,25 +1075,20 @@ func TestMatcher_ShadowMetrics_InvalidPURL_Increments(t *testing.T) {
 func TestMatcher_VulnerabilityDecisionMetrics(t *testing.T) {
 	candidateBefore := testutil.ToFloat64(metrics.MatcherVulnerabilityCandidatesTotal.WithLabelValues("pypi", ResolverVersion))
 	versionMatchBefore := testutil.ToFloat64(metrics.MatcherVulnerabilityVersionMatchesTotal.WithLabelValues("pypi", ResolverVersion))
-	noConstraintBefore := testutil.ToFloat64(metrics.MatcherVulnerabilitySkipsTotal.WithLabelValues("no_constraint", "pypi", ResolverVersion))
+	notVulnerableBefore := testutil.ToFloat64(metrics.MatcherVulnerabilitySkipsTotal.WithLabelValues("not_vulnerable", "pypi", ResolverVersion))
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}))
+	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}))
 
-	require.NoError(t, db.Create(&models.CVE{CVEID: "CVE-2026-0001", Severity: "HIGH", Description: "matched"}).Error)
-	require.NoError(t, db.Create(&models.CVE{CVEID: "CVE-2026-0002", Severity: "HIGH", Description: "missing constraint"}).Error)
-	require.NoError(t, db.Create(&models.PackageVulnerability{
-		CVEID:         "CVE-2026-0001",
-		Ecosystem:     "pypi",
-		PackageName:   "django",
-		AffectedRange: "< 2.0.0",
-	}).Error)
-	require.NoError(t, db.Create(&models.PackageVulnerability{
-		CVEID:       "CVE-2026-0002",
-		Ecosystem:   "pypi",
-		PackageName: "django",
-	}).Error)
+	catalogtest.Seed(t, db,
+		catalogtest.Advisory{ID: "CVE-2026-0001", Severity: "HIGH", Details: "matched", Affected: []catalogtest.Range{
+			{Ecosystem: "PyPI", Package: "django", Fixed: "2.0.0"},
+		}},
+		catalogtest.Advisory{ID: "CVE-2026-0002", Severity: "HIGH", Details: "not affected", Affected: []catalogtest.Range{
+			{Ecosystem: "PyPI", Package: "django", Introduced: "3.0.0", Fixed: "3.0.5"},
+		}},
+	)
 
 	sbom := &models.SBOM{Status: "finalized"}
 	component := &models.SBOMComponent{
@@ -1231,7 +1107,7 @@ func TestMatcher_VulnerabilityDecisionMetrics(t *testing.T) {
 
 	require.Equal(t, candidateBefore+2, testutil.ToFloat64(metrics.MatcherVulnerabilityCandidatesTotal.WithLabelValues("pypi", ResolverVersion)))
 	require.Equal(t, versionMatchBefore+1, testutil.ToFloat64(metrics.MatcherVulnerabilityVersionMatchesTotal.WithLabelValues("pypi", ResolverVersion)))
-	require.Equal(t, noConstraintBefore+1, testutil.ToFloat64(metrics.MatcherVulnerabilitySkipsTotal.WithLabelValues("no_constraint", "pypi", ResolverVersion)))
+	require.Equal(t, notVulnerableBefore+1, testutil.ToFloat64(metrics.MatcherVulnerabilitySkipsTotal.WithLabelValues("not_vulnerable", "pypi", ResolverVersion)))
 }
 
 func TestMatcher_GobinaryMain_KeptForMatching(t *testing.T) {
@@ -1267,23 +1143,16 @@ func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
-	); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	// Two vulns for same module so output order matters.
-	v1 := models.OSVVulnerability{ID: "GO-DET-1", Summary: "t", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
-	v2 := models.OSVVulnerability{ID: "GO-DET-2", Summary: "t", Details: "d", Severity: "MEDIUM", CVSSScore: 5.0}
-	_ = db.Create(&v1).Error
-	_ = db.Create(&v2).Error
-	p1 := models.OSVPackage{VulnID: "GO-DET-1", Ecosystem: "go", PackageName: "github.com/a/b"}
-	p2 := models.OSVPackage{VulnID: "GO-DET-2", Ecosystem: "go", PackageName: "github.com/a/b"}
-	_ = db.Create(&p1).Error
-	_ = db.Create(&p2).Error
-	_ = db.Create(&models.OSVRange{PackageID: p1.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "9.9.9"}).Error
-	_ = db.Create(&models.OSVRange{PackageID: p2.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "9.9.9"}).Error
+	catalogtest.Seed(t, db,
+		catalogtest.Advisory{ID: "GO-DET-1", Summary: "t", Details: "d", Severity: "HIGH",
+			Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "9.9.9"}}},
+		catalogtest.Advisory{ID: "GO-DET-2", Summary: "t", Details: "d", Severity: "MEDIUM",
+			Affected: []catalogtest.Range{{Ecosystem: "Go", Package: "github.com/a/b", Type: "SEMVER", Fixed: "9.9.9"}}},
+	)
 
 	sbom := &models.SBOM{Status: "finalized"}
 	_ = db.Create(sbom).Error
@@ -1327,28 +1196,16 @@ func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
 	}
 }
 
-func TestMatchSBOM_AlpineBusyboxUsesOSVMirror(t *testing.T) {
+// An Alpine advisory aliasing a CVE is reported under the CVE.
+func TestMatchSBOM_AlpineBusyboxMatchesAdvisory(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(
-		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
-		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}, &models.CVE{},
-	))
-	now := time.Now()
-	require.NoError(t, db.Create(&models.CVE{
-		CVEID: "CVE-2023-42363", Severity: "HIGH", CVSSScore: 7.5,
-		PublishedDate: &now, LastModifiedDate: &now,
-	}).Error)
-	v := models.OSVVulnerability{
-		ID: "ALPINE-CVE-2023-42363", Summary: "busybox", Details: "x", Severity: "HIGH", CVSSScore: 7.5,
-		Aliases: `["CVE-2023-42363"]`,
-	}
-	require.NoError(t, db.Create(&v).Error)
-	p := models.OSVPackage{VulnID: v.ID, Ecosystem: "alpine", PackageName: "busybox"}
-	require.NoError(t, db.Create(&p).Error)
-	require.NoError(t, db.Create(&models.OSVRange{
-		PackageID: p.ID, RangeType: "ECOSYSTEM", Introduced: "0", Fixed: "1.99.0",
-	}).Error)
+	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}))
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID: "ALPINE-CVE-2023-42363", Summary: "busybox", Details: "x", Severity: "HIGH",
+		Aliases:  []string{"CVE-2023-42363"},
+		Affected: []catalogtest.Range{{Ecosystem: "Alpine", Package: "busybox", Fixed: "1.99.0"}},
+	})
 
 	sb := &models.SBOM{PodUID: "pod-1", OSName: "alpine", Status: "complete", PackageCount: 1}
 	require.NoError(t, db.Create(sb).Error)

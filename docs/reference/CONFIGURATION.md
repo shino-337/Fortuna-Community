@@ -152,7 +152,7 @@ These are read by the database migrations that run at Core startup.
 | `FORTUNA_SBOM_ORPHAN_GRACE_PERIOD` | `30m` | An SBOM whose pod is missing is kept for at least this long (duration or minutes). |
 | `FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL` | `30s` | How often the SBOM dead-letter queue depth is polled for metrics; `0` or `off` disables. |
 | `FORTUNA_SBOM_DLQ_REPLAY_MAX_ATTEMPTS` | `5` | Replay attempts for a dead-lettered SBOM event before it is dropped. |
-| `FORTUNA_OSV_SOURCE_DIR` | none | Directory of OSV JSON files loaded into the vulnerability mirror at startup when it is empty, and on database updates. |
+| `FORTUNA_OSV_SOURCE_DIR` | none | Directory of OSV JSON files loaded into the vulnerability catalog in the background at startup when the catalog is empty. Later updates come from the `fortuna-vulndb-update` job. |
 | `FORTUNA_CVE_REMATCH_INTERVAL` | `5m` | How often Core checks for a new CVE catalog generation or a change of the malware feeds; when one appears, every running SBOM is re-matched once. Also updates `fortuna_cve_catalog_age_seconds`. `0` or `off` disables. |
 | `FORTUNA_CVE_CACHE_MAX_ENTRIES` | `10000` | Maximum entries in the in-memory CVE query cache. |
 | `FORTUNA_K8S_COMPONENT_MAP_PATH` | none | Path to the Kubernetes component to module mapping YAML; checked before the built-in locations. |

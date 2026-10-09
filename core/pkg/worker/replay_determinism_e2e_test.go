@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/fortuna/core/migrations"
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/sbom"
 	"github.com/glebarez/sqlite"
@@ -72,8 +72,6 @@ func newDeterministicReplayWorkerTestDB(t *testing.T) *gorm.DB {
 		&models.SBOM{},
 		&models.SBOMComponent{},
 		&models.SBOMMatchRun{},
-		&models.CVE{},
-		&models.PackageVulnerability{},
 		&models.CVEMatch{},
 		&models.Insight{},
 		&models.RiskScore{},
@@ -159,36 +157,15 @@ func seedDeterministicFixtures(t *testing.T, db *gorm.DB, sb *models.SBOM) {
 		t.Fatalf("create sbom component: %v", err)
 	}
 
-	cve := models.CVE{
-		CVEID:         "CVE-TEST-1",
-		Severity:      "HIGH",
-		CVSSScore:     7.5,
-		CVSSVector:    "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-		Title:         "test",
-		Description:   "test",
-		Source:        "osv",
-		PublishedDate: nil,
-		CreatedAt:     time.Now(),
-	}
-	if err := db.Create(&cve).Error; err != nil {
-		t.Fatalf("create cve: %v", err)
-	}
-
 	// Debian-like version constraint: vulnerable if installedVersion < 2.0.
-	pv := models.PackageVulnerability{
-		CVEID:               cve.CVEID,
-		PackageName:         "openssl",
-		PackageType:         "deb",
-		Ecosystem:           "debian",
-		VersionEndExcluding: "2.0",
-		FixedVersion:        "2.0",
-		Vendor:              "test",
-		Product:             "test",
-		CreatedAt:           time.Now(),
-	}
-	if err := db.Create(&pv).Error; err != nil {
-		t.Fatalf("create package vulnerability: %v", err)
-	}
+	catalogtest.Seed(t, db, catalogtest.Advisory{
+		ID:       "CVE-TEST-1",
+		Severity: "HIGH",
+		CVSSv3:   "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", // 7.5
+		Summary:  "test",
+		Details:  "test",
+		Affected: []catalogtest.Range{{Ecosystem: "debian", Package: "openssl", Fixed: "2.0"}},
+	})
 }
 
 func upsertOSVMirrorVersion(t *testing.T, db *gorm.DB, v int64) {

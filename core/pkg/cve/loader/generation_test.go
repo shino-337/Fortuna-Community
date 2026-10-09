@@ -21,26 +21,10 @@ func openGenerationDB(t *testing.T) *gorm.DB {
 	}
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1) // one in-memory database
-	if err := db.AutoMigrate(&models.CatalogGeneration{}, &models.PackageVulnerability{}, &FileMetadata{}); err != nil {
+	if err := db.AutoMigrate(&models.CatalogGeneration{}, &FileMetadata{}); err != nil {
 		t.Fatal(err)
 	}
 	return db
-}
-
-func activeGen(t *testing.T, db *gorm.DB, at time.Time) uint {
-	t.Helper()
-	g := models.CatalogGeneration{CatalogType: "cve", SourceName: "osv", Status: "active", StartedAt: at, ActivatedAt: &at, RecordCounts: "{}"}
-	if err := db.Create(&g).Error; err != nil {
-		t.Fatal(err)
-	}
-	return g.ID
-}
-
-func idsOfGeneration(t *testing.T, db *gorm.DB, gen uint) []string {
-	t.Helper()
-	var ids []string
-	db.Model(&models.PackageVulnerability{}).Where("catalog_generation_id = ?", gen).Order("cve_id").Pluck("cve_id", &ids)
-	return ids
 }
 
 func TestRemovedCVEIDsOnlyCountsTrackedDirectory(t *testing.T) {

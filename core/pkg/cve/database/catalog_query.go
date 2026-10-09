@@ -11,6 +11,7 @@ import (
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/cvss"
 	"github.com/fortuna/core/pkg/cve/loader"
+	"gorm.io/gorm"
 )
 
 // Severity sources, best first. A finding takes its severity from the best source any of its
@@ -38,8 +39,25 @@ const visibleAt = "%[1]s.valid_from_gen <= @gen AND (%[1]s.valid_to_gen IS NULL 
 
 func visible(alias string) string { return fmt.Sprintf(visibleAt, alias) }
 
+// inList matches column against the named list argument: one array parameter on Postgres, an
+// expanded IN list elsewhere (the SQLite databases of the tests).
+func inList(db *gorm.DB, column, name string) string {
+	if db.Dialector.Name() == "postgres" {
+		return column + " = ANY(@" + name + ")"
+	}
+	return column + " IN @" + name
+}
+
+// listArg is the value inList expects for values.
+func listArg(db *gorm.DB, values []string) interface{} {
+	if db.Dialector.Name() == "postgres" {
+		return pq.StringArray(values)
+	}
+	return values
+}
+
 // versionedCatalogGeneration returns the active CVE generation when the versioned catalog has
-// rows for it, or 0 when matching must use the legacy tables.
+// rows for it, or 0 when no catalog is loaded.
 func (m *Manager) versionedCatalogGeneration(ctx context.Context) uint {
 	if m.postgresDB == nil || !m.postgresDB.Migrator().HasTable("vuln_affected") {
 		return 0
@@ -105,7 +123,7 @@ func (m *Manager) queryVersionedCatalogBulk(ctx context.Context, gen uint, eco s
 		return out, nil
 	}
 	db := m.postgresDB.WithContext(ctx)
-	args := map[string]interface{}{"gen": gen, "eco": eco, "pkgs": pq.StringArray(packages)}
+	args := map[string]interface{}{"gen": gen, "eco": eco, "pkgs": listArg(db, packages)}
 
 	var rows []catalogRangeRow
 	if err := db.Raw(`
@@ -114,7 +132,7 @@ SELECT f.advisory_id, a.source, a.kind, f.package_name, f.release, f.range_type,
        a.published_at, a.modified_at, a.cvss_v3_vector, a.cvss_v3_score, a.cvss_v4_vector, a.cvss_v4_score
 FROM vuln_affected f
 JOIN vuln_advisories a ON a.advisory_id = f.advisory_id AND `+visible("a")+`
-WHERE f.ecosystem = @eco AND f.package_name = ANY(@pkgs) AND `+visible("f"), args).Scan(&rows).Error; err != nil {
+WHERE f.ecosystem = @eco AND `+inList(db, "f.package_name", "pkgs")+` AND `+visible("f"), args).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("versioned catalog ranges: %w", err)
 	}
 	if len(rows) == 0 {
@@ -133,8 +151,8 @@ WHERE f.ecosystem = @eco AND f.package_name = ANY(@pkgs) AND `+visible("f"), arg
 	if err := db.Raw(`
 SELECT r.advisory_id, r.ref_id, r.relation, r.ref_kind
 FROM vuln_advisory_refs r
-WHERE r.advisory_id = ANY(@ids) AND `+visible("r"),
-		map[string]interface{}{"gen": gen, "ids": pq.StringArray(advisoryIDs)}).Scan(&refRows).Error; err != nil {
+WHERE `+inList(db, "r.advisory_id", "ids")+` AND `+visible("r"),
+		map[string]interface{}{"gen": gen, "ids": listArg(db, advisoryIDs)}).Scan(&refRows).Error; err != nil {
 		return nil, fmt.Errorf("versioned catalog refs: %w", err)
 	}
 	refs := make(map[string][]loader.AdvisoryRef, len(advisoryIDs))
@@ -292,14 +310,14 @@ func (m *Manager) cveLevelScores(ctx context.Context, gen uint, cveIDs []string)
 		return nvd, others, nil
 	}
 	db := m.postgresDB.WithContext(ctx)
-	ids := pq.StringArray(cveIDs)
+	args := map[string]interface{}{"gen": gen, "ids": listArg(db, cveIDs)}
 
 	var nvdRows []cveScoreRow
 	if err := db.Raw(`
 SELECT vuln_id,
-       COALESCE(NULLIF(nvd_cvss_v3_score, 0), nvd_cvss_v4_score)::float8 AS score,
+       CAST(COALESCE(NULLIF(nvd_cvss_v3_score, 0), nvd_cvss_v4_score) AS DOUBLE PRECISION) AS score,
        CASE WHEN COALESCE(nvd_cvss_v3_score, 0) > 0 THEN nvd_cvss_v3_vector ELSE nvd_cvss_v4_vector END AS vector
-FROM vulnerabilities WHERE vuln_id = ANY(?)`, ids).Scan(&nvdRows).Error; err != nil {
+FROM vulnerabilities WHERE `+inList(db, "vuln_id", "ids"), args).Scan(&nvdRows).Error; err != nil {
 		return nil, nil, fmt.Errorf("vulnerabilities NVD scores: %w", err)
 	}
 	for _, r := range nvdRows {
@@ -311,33 +329,35 @@ FROM vulnerabilities WHERE vuln_id = ANY(?)`, ids).Scan(&nvdRows).Error; err != 
 WITH about AS (
   SELECT r.ref_id AS vuln_id, r.advisory_id
   FROM vuln_advisory_refs r
-  WHERE r.ref_id = ANY(@ids) AND r.ref_kind = 'cve' AND r.relation IN ('alias', 'upstream') AND `+visible("r")+`
+  WHERE `+inList(db, "r.ref_id", "ids")+` AND r.ref_kind = 'cve' AND r.relation IN ('alias', 'upstream') AND `+visible("r")+`
     AND NOT EXISTS (
       SELECT 1 FROM vuln_advisory_refs x
       WHERE x.advisory_id = r.advisory_id AND x.ref_kind = 'cve' AND x.relation IN ('alias', 'upstream')
         AND x.ref_id <> r.ref_id AND `+visible("x")+`)
   UNION
-  SELECT a.advisory_id, a.advisory_id FROM vuln_advisories a WHERE a.advisory_id = ANY(@ids) AND `+visible("a")+`
+  SELECT a.advisory_id, a.advisory_id FROM vuln_advisories a WHERE `+inList(db, "a.advisory_id", "ids")+` AND `+visible("a")+`
 ), scored AS (
   SELECT b.vuln_id,
-         COALESCE(NULLIF(a.cvss_v3_score, 0), a.cvss_v4_score)::float8 AS score,
+         CAST(COALESCE(NULLIF(a.cvss_v3_score, 0), a.cvss_v4_score) AS DOUBLE PRECISION) AS score,
          CASE WHEN COALESCE(a.cvss_v3_score, 0) > 0 THEN a.cvss_v3_vector ELSE a.cvss_v4_vector END AS vector
   FROM about b JOIN vuln_advisories a ON a.advisory_id = b.advisory_id AND `+visible("a")+`
 )
-SELECT DISTINCT ON (vuln_id) vuln_id, score, vector
+SELECT vuln_id, score, vector
 FROM scored WHERE score > 0
-ORDER BY vuln_id, score DESC, vector`, map[string]interface{}{"gen": gen, "ids": ids}).Scan(&otherRows).Error; err != nil {
+ORDER BY vuln_id, score DESC, vector`, args).Scan(&otherRows).Error; err != nil {
 		return nil, nil, fmt.Errorf("per-CVE advisory scores: %w", err)
 	}
+	// Rows come best first per CVE; keep the first.
 	for _, r := range otherRows {
-		others[r.VulnID] = r
+		if _, ok := others[r.VulnID]; !ok {
+			others[r.VulnID] = r
+		}
 	}
 	return nvd, others, nil
 }
 
 // getFromVersionedCatalog serves GetVulnerabilitiesForPackages from the versioned catalog of
-// generation gen. CPE-scoped NVD rows still live in package_vulnerabilities and are merged in
-// for distro packages.
+// generation gen.
 func (m *Manager) getFromVersionedCatalog(ctx context.Context, gen uint, ecosystem, eco string, packages []string) (map[string][]*cve.CVE, error) {
 	result := make(map[string][]*cve.CVE, len(packages))
 	cacheKey := func(pkg string) string { return fmt.Sprintf("%s:%s:vcat2-%d", ecosystem, pkg, gen) }
@@ -355,15 +375,6 @@ func (m *Manager) getFromVersionedCatalog(ctx context.Context, gen uint, ecosyst
 	found, err := m.queryVersionedCatalogBulk(ctx, gen, eco, uncached)
 	if err != nil {
 		return nil, err
-	}
-	if isDistroPackageEcosystemForCPESupplement(eco) {
-		if nvdSupp, err := m.queryPostgresPackageVulnsBulk(ctx, []string{"nvd"}, uncached); err != nil {
-			m.logger.Printf("⚠️  CPE supplement merge (package_vulnerabilities): %v", err)
-		} else {
-			for _, pkg := range uncached {
-				found[pkg] = mergeCVEByIDUnique(found[pkg], nvdSupp[pkg])
-			}
-		}
 	}
 	for _, pkg := range uncached {
 		cves := found[pkg]

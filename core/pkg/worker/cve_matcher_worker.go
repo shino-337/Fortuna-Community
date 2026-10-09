@@ -222,7 +222,7 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 			})
 		}
 	}
-	// Match CVEs using postgres-backed manager (cves + package_vulnerabilities)
+	// Match CVEs against the versioned catalog
 	startMatch := time.Now()
 	matches, catalogMalware, complete, err := w.matcher.MatchSBOMFindings(ctx, &sbomModel, componentsOverride)
 	if err != nil {

@@ -138,7 +138,7 @@ func (r *CVECatalogRematcher) rematchGeneration(ctx context.Context, state, cata
 	if err != nil || !claimed {
 		return 0, err
 	}
-	// Matcher caches keyed by the OSV mirror version miss after this bump.
+	// Matcher runs keyed by the "osv" mirror_state version see this bump.
 	if err := r.DB.WithContext(ctx).Exec(`INSERT INTO mirror_state (name, version, updated_at) VALUES ('osv', 1, ?)
 ON CONFLICT (name) DO UPDATE SET version = mirror_state.version + 1, updated_at = excluded.updated_at`, now).Error; err != nil {
 		r.logf("bump osv mirror version: %v", err)

@@ -9,6 +9,8 @@ import (
 )
 
 // CVE represents a Common Vulnerability and Exposure record
+// Legacy catalog table: nothing reads or writes it since the versioned catalog
+// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
 type CVE struct {
 	ID                  uint           `gorm:"primaryKey" json:"id"`
 	CVEID               string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"cveId"`
@@ -42,6 +44,8 @@ func (CVE) TableName() string {
 }
 
 // PackageVulnerability links CVEs to packages and version ranges
+// Legacy catalog table: nothing reads or writes it since the versioned catalog
+// (vuln_advisories, vuln_affected) replaced it; the model stays for migrations until the table is dropped.
 type PackageVulnerability struct {
 	ID                    uint           `gorm:"primaryKey" json:"id"`
 	CVEID                 string         `gorm:"type:varchar(100);not null;index" json:"cveId"`

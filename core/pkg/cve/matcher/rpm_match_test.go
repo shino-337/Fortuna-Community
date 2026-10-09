@@ -4,8 +4,8 @@ import (
 	"context"
 	"sort"
 	"testing"
-	"time"
 
+	"github.com/fortuna/core/pkg/cve/catalogtest"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/glebarez/sqlite"
@@ -20,27 +20,24 @@ func TestMatchSBOM_RPMDistros(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	now := time.Now()
-	for _, id := range []string{"CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003", "CVE-2026-0004"} {
-		if err := db.Create(&models.CVE{CVEID: id, Severity: "HIGH", CVSSScore: 7.5, PublishedDate: &now, LastModifiedDate: &now}).Error; err != nil {
-			t.Fatalf("create CVE: %v", err)
-		}
-	}
-	rows := []models.PackageVulnerability{
-		{CVEID: "CVE-2026-0001", Ecosystem: "alma", EcosystemRelease: "8", PackageName: "vim-minimal", VersionStartIncluding: "0", VersionEndExcluding: "2:8.0.1763-32.el8_10"},
-		{CVEID: "CVE-2026-0002", Ecosystem: "rocky", EcosystemRelease: "8", PackageName: "vim", VersionStartIncluding: "0", VersionEndExcluding: "2:8.0.1763-32.el8_10"},
-		{CVEID: "CVE-2026-0003", Ecosystem: "redhat", EcosystemRelease: "9", PackageName: "openssl-libs", VersionStartIncluding: "0", VersionEndExcluding: "1:3.0.7-28.el9_4"},
+	catalogtest.Seed(t, db,
+		catalogtest.Advisory{ID: "CVE-2026-0001", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "AlmaLinux:8", Package: "vim-minimal", Fixed: "2:8.0.1763-32.el8_10"},
+		}},
+		catalogtest.Advisory{ID: "CVE-2026-0002", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Rocky Linux:8", Package: "vim", Fixed: "2:8.0.1763-32.el8_10"},
+		}},
+		catalogtest.Advisory{ID: "CVE-2026-0003", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Red Hat:enterprise_linux:9::baseos", Package: "openssl-libs", Fixed: "1:3.0.7-28.el9_4"},
+		}},
 		// RHEL 8 stream only: must not match a RHEL 9 package.
-		{CVEID: "CVE-2026-0004", Ecosystem: "redhat", EcosystemRelease: "8", PackageName: "openssl-libs", VersionStartIncluding: "0", VersionEndExcluding: "1:9.9.9-1.el8"},
-	}
-	for i := range rows {
-		if err := db.Create(&rows[i]).Error; err != nil {
-			t.Fatalf("create PackageVulnerability: %v", err)
-		}
-	}
+		catalogtest.Advisory{ID: "CVE-2026-0004", Severity: "HIGH", Affected: []catalogtest.Range{
+			{Ecosystem: "Red Hat:enterprise_linux:8::baseos", Package: "openssl-libs", Fixed: "1:9.9.9-1.el8"},
+		}},
+	)
 	run := func(osName, name, version, purl string) []string {
 		t.Helper()
 		sbom := &models.SBOM{OSName: osName, Status: "finalized"}

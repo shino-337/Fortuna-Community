@@ -74,17 +74,16 @@ type SBOMComponentDTO struct {
 
 // VulnerabilityDTO is the payload for each CVE
 type VulnerabilityDTO struct {
-	ID              string  `json:"id"`
-	Severity        string  `json:"severity"`
-	CVSSScore       float32 `json:"cvssScore"`
-	Description     string  `json:"description,omitempty"`
-	FixedVersion    string  `json:"fixedVersion,omitempty"`
-	Status          string  `json:"status,omitempty"`          // active | allowed | fixed
-	ExploitKnown    bool    `json:"exploitKnown,omitempty"`    // public exploit available
-	ExploitMaturity string  `json:"exploitMaturity,omitempty"` // poc | functional | high
-	Allowed         bool    `json:"allowed,omitempty"`         // allowed by policy
-	Source          string  `json:"source,omitempty"`          // fortuna-core-cve-matcher (and variants)
-	Confidence      string  `json:"confidence,omitempty"`      // high (constrained OSV) | lower when matcher flags uncertainty
+	ID           string  `json:"id"`
+	Severity     string  `json:"severity"`
+	CVSSScore    float32 `json:"cvssScore"`
+	Description  string  `json:"description,omitempty"`
+	FixedVersion string  `json:"fixedVersion,omitempty"`
+	Status       string  `json:"status,omitempty"`       // active | allowed | fixed
+	ExploitKnown bool    `json:"exploitKnown,omitempty"` // public exploit available
+	Allowed      bool    `json:"allowed,omitempty"`      // allowed by policy
+	Source       string  `json:"source,omitempty"`       // fortuna-core-cve-matcher (and variants)
+	Confidence   string  `json:"confidence,omitempty"`   // high (constrained OSV) | lower when matcher flags uncertainty
 	// Advisories lists the advisories (GHSA, DSA, RHSA, …) that reported this vulnerability.
 	Advisories []string `json:"advisories,omitempty"`
 }
@@ -355,7 +354,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		db = db.WithContext(c.Request.Context())
 		if !requireAvailabilityTables(c, db, "pod_sbom_schema_unavailable",
 			"Pod SBOM detail requires SBOM component, CVE and Pod schemas",
-			"sboms", "sbom_components", "cve_matches", "cves", "pods") {
+			"sboms", "sbom_components", "cve_matches", "pods") {
 			return
 		}
 
@@ -407,7 +406,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var matches []models.CVEMatch
-		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Preload("CVE").Order("severity DESC").Find(&matches).Error; err != nil {
+		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Order("severity DESC").Find(&matches).Error; err != nil {
 			respondDataUnavailable(c, "pod_sbom_cve_matches_unavailable", "Pod SBOM vulnerability evidence could not be loaded")
 			return
 		}
@@ -495,35 +494,25 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 				if match.FixedVersion != "" && fixVer == "" {
 					fixVer = match.FixedVersion
 				}
-				desc := ""
-				exploitKnown := false
-				exploitMaturity := ""
-				if match.CVE.ID != 0 {
-					desc = match.CVE.Description
-					exploitKnown = match.CVE.ExploitAvailable
-					exploitMaturity = match.CVE.ExploitMaturity
-				}
-				if desc == "" {
-					desc = catalogDesc.of(match)
-				}
+				desc := catalogDesc.of(match)
+				exploitKnown := catalogDesc.exploited[match.CVEID]
 				source := match.MatchedBy
 				confidence := "high"
 				if strings.Contains(strings.ToLower(match.MatchedBy), "low-confidence") {
 					confidence = "low"
 				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{
-					ID:              match.CVEID,
-					Severity:        sev,
-					CVSSScore:       match.CVSS,
-					Description:     desc,
-					FixedVersion:    match.FixedVersion,
-					Status:          "active",
-					ExploitKnown:    exploitKnown,
-					ExploitMaturity: exploitMaturity,
-					Allowed:         false,
-					Source:          source,
-					Confidence:      confidence,
-					Advisories:      []string(match.AdvisoryIDs),
+					ID:           match.CVEID,
+					Severity:     sev,
+					CVSSScore:    match.CVSS,
+					Description:  desc,
+					FixedVersion: match.FixedVersion,
+					Status:       "active",
+					ExploitKnown: exploitKnown,
+					Allowed:      false,
+					Source:       source,
+					Confidence:   confidence,
+					Advisories:   []string(match.AdvisoryIDs),
 				})
 			}
 			compDTO.MaxSeverity = maxSev
@@ -682,47 +671,58 @@ func registryMatchesPolicy(registry, rawPolicy string) bool {
 	return false
 }
 
-// matchDescriptions holds advisory texts from the versioned catalog by vulnerability or advisory ID.
-type matchDescriptions map[string]string
+// matchDescriptions holds advisory texts from the versioned catalog by vulnerability or advisory
+// ID, and the vulnerabilities CISA lists as exploited (KEV).
+type matchDescriptions struct {
+	text      map[string]string
+	exploited map[string]bool
+}
 
 // of returns the text of the finding's own ID, else of the first advisory that has one.
 func (d matchDescriptions) of(m models.CVEMatch) string {
-	if v := d[m.CVEID]; v != "" {
+	if v := d.text[m.CVEID]; v != "" {
 		return v
 	}
 	for _, id := range m.AdvisoryIDs {
-		if v := d[id]; v != "" {
+		if v := d.text[id]; v != "" {
 			return v
 		}
 	}
 	return ""
 }
 
-// catalogDescriptions loads descriptions for findings the legacy cves table does not describe
-// (findings are keyed by CVE since resolver v1.7; that table holds advisory IDs).
+// catalogDescriptions loads the descriptions and KEV status of the findings from the catalog.
 func catalogDescriptions(db *gorm.DB, matches []models.CVEMatch) matchDescriptions {
-	out := matchDescriptions{}
-	var ids []string
+	out := matchDescriptions{text: map[string]string{}, exploited: map[string]bool{}}
+	var ids, vulnIDs []string
 	for _, m := range matches {
-		if m.CVE.ID != 0 {
-			continue
-		}
+		vulnIDs = append(vulnIDs, m.CVEID)
 		ids = append(ids, m.CVEID)
 		ids = append(ids, m.AdvisoryIDs...)
 	}
-	if len(ids) == 0 || !db.Migrator().HasTable("vuln_advisories") {
+	if len(ids) == 0 {
 		return out
 	}
-	var rows []struct {
-		AdvisoryID string
-		Text       string
+	if db.Migrator().HasTable("vuln_advisories") {
+		var rows []struct {
+			AdvisoryID string
+			Text       string
+		}
+		if err := db.Raw(`SELECT advisory_id, COALESCE(NULLIF(details, ''), summary) AS text
+		FROM vuln_advisories WHERE valid_to_gen IS NULL AND advisory_id IN ?`, ids).Scan(&rows).Error; err == nil {
+			for _, r := range rows {
+				out.text[r.AdvisoryID] = r.Text
+			}
+		}
 	}
-	if err := db.Raw(`SELECT advisory_id, COALESCE(NULLIF(details, ''), summary) AS text
-		FROM vuln_advisories WHERE valid_to_gen IS NULL AND advisory_id IN ?`, ids).Scan(&rows).Error; err != nil {
-		return out
-	}
-	for _, r := range rows {
-		out[r.AdvisoryID] = r.Text
+	if db.Migrator().HasTable("vulnerabilities") {
+		var exploited []string
+		if err := db.Raw(`SELECT vuln_id FROM vulnerabilities WHERE kev_added_at IS NOT NULL AND vuln_id IN ?`, vulnIDs).
+			Scan(&exploited).Error; err == nil {
+			for _, id := range exploited {
+				out.exploited[id] = true
+			}
+		}
 	}
 	return out
 }

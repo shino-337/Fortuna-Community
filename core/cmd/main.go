@@ -25,11 +25,10 @@ import (
 	"github.com/fortuna/core/internal/storage"
 	"github.com/fortuna/core/internal/webhook"
 	"github.com/fortuna/core/migrations"
-	cvedb "github.com/fortuna/core/pkg/cve/database"
+	cveloader "github.com/fortuna/core/pkg/cve/loader"
 	"github.com/fortuna/core/pkg/kev"
 	malwarePkg "github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/messaging"
-	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/mutations"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
@@ -129,7 +128,8 @@ func main() {
 	} else if n > 0 {
 		log.Printf("[MAIN] ✅ Seeded %d risk rules from %s (DB was empty)", n, riskengine.GetRiskRulesExportDir())
 	}
-	bootstrapVulnCatalog(db)
+	// A full load takes minutes; Core serves meanwhile and the rematcher picks up the generation.
+	go bootstrapVulnCatalog(db)
 
 	log.Printf("[MAIN] ✅ Database is now available for use")
 	defer sqlDB.Close()
@@ -662,75 +662,44 @@ func main() {
 	}
 }
 
-// bootstrapVulnCatalog loads OSV JSON from FORTUNA_OSV_SOURCE_DIR when the mirror or legacy catalog is empty.
-// Previously this only ran when package_vulnerabilities was empty; supplemental rows can populate PV while osv_packages
-// stays empty, so we also bootstrap when osv_packages exists and has zero rows.
+// bootstrapVulnCatalog loads the OSV JSON files of FORTUNA_OSV_SOURCE_DIR into the versioned
+// catalog when it is empty, so a fresh installation matches SBOMs before the first scheduled
+// catalog update runs.
 func bootstrapVulnCatalog(db *gorm.DB) {
 	if db == nil {
 		return
 	}
 	sourceDir := strings.TrimSpace(os.Getenv("FORTUNA_OSV_SOURCE_DIR"))
 	if sourceDir == "" {
-		log.Printf("[MAIN] FORTUNA_OSV_SOURCE_DIR not set; skip OSV mirror bootstrap (set it to a directory of OSV *.json to autoload on startup)")
 		return
 	}
 	if st, err := os.Stat(sourceDir); err != nil || !st.IsDir() {
 		log.Printf("[MAIN] OSV source dir missing or not a directory (%q); skip bootstrap: %v", sourceDir, err)
 		return
 	}
-
-	var pvCount int64
-	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
-		log.Printf("[MAIN] ⚠️  Unable to count package_vulnerabilities: %v", err)
-	}
-
-	var osvPkgCount int64
-	osvTableReady := db.Migrator().HasTable("osv_packages")
-	var osvCountErr error
-	if osvTableReady {
-		osvCountErr = db.Model(&models.OSVPackage{}).Count(&osvPkgCount).Error
-		if osvCountErr != nil {
-			log.Printf("[MAIN] ⚠️  Unable to count osv_packages: %v", osvCountErr)
-		}
-	}
-	// Treat missing table, count error, or zero rows as "mirror not loaded" so we retry OSV ingest on startup.
-	osvMirrorEmpty := !osvTableReady || osvCountErr != nil || osvPkgCount == 0
-
-	catalogEmpty := pvCount == 0
-
-	if !catalogEmpty && !osvMirrorEmpty {
-		log.Printf("[MAIN] OSV mirror populated (osv_packages=%d) and package_vulnerabilities=%d; skip OSV bootstrap", osvPkgCount, pvCount)
+	ctx := context.Background()
+	empty, err := cveloader.VersionedCatalogEmpty(ctx, db)
+	if err != nil {
+		log.Printf("[MAIN] ⚠️  Unable to read the vulnerability catalog: %v", err)
 		return
 	}
-	// Avoid re-reading every OSV JSON on each restart when mirror is already filled (PV may stay empty if only osv_* is used).
-	if catalogEmpty && !osvMirrorEmpty {
-		log.Printf("[MAIN] package_vulnerabilities empty but OSV mirror has %d osv_packages rows; skip OSV bootstrap on this boot", osvPkgCount)
+	if !empty {
 		return
 	}
-
-	if catalogEmpty && osvMirrorEmpty {
-		log.Printf("[MAIN] Fresh DB: package_vulnerabilities=0 and OSV mirror empty; bootstrapping OSV from %q ...", sourceDir)
-	} else if !catalogEmpty && osvMirrorEmpty {
-		log.Printf("[MAIN] OSV mirror empty (osv_packages=%d) while package_vulnerabilities=%d — ingesting OSV from %q ...", osvPkgCount, pvCount, sourceDir)
-	}
-
-	manager := cvedb.NewPostgresManager(db)
-	if err := manager.UpdateDatabase(context.Background()); err != nil {
-		log.Printf("[MAIN] ⚠️  OSV bootstrap UpdateDatabase failed: %v", err)
+	unlock, err := cveloader.LockCatalogLoad(ctx, db)
+	if err != nil {
+		log.Printf("[MAIN] Skip OSV bootstrap: %v", err)
 		return
 	}
-
-	var afterOSV int64
-	if osvTableReady {
-		if err := db.Model(&models.OSVPackage{}).Count(&afterOSV).Error; err != nil {
-			log.Printf("[MAIN] ⚠️  Unable to recount osv_packages after bootstrap: %v", err)
-		} else {
-			log.Printf("[MAIN] ✅ OSV bootstrap finished (osv_packages=%d)", afterOSV)
-		}
-	}
-	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
-		log.Printf("[MAIN] ⚠️  Unable to recount package_vulnerabilities after bootstrap: %v", err)
+	defer unlock()
+	if err := cveloader.RollbackUnfinishedCatalogGenerations(ctx, db); err != nil {
+		log.Printf("[MAIN] ⚠️  OSV bootstrap: rolling back unfinished generations failed: %v", err)
 		return
 	}
-	log.Printf("[MAIN] ✅ Catalog state after bootstrap: package_vulnerabilities=%d", pvCount)
+	log.Printf("[MAIN] Vulnerability catalog is empty; loading OSV advisories from %q ...", sourceDir)
+	if err := cveloader.LoadAll(ctx, db, cveloader.DirectoryLoad{SourceDir: sourceDir, LoaderVersion: "core-bootstrap"}); err != nil {
+		log.Printf("[MAIN] ⚠️  OSV bootstrap failed: %v", err)
+		return
+	}
+	log.Printf("[MAIN] ✅ OSV bootstrap loaded the vulnerability catalog from %q", sourceDir)
 }
